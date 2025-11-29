@@ -40,4 +40,12 @@
 # debug information files
 *.dwo
 
+<<<<<<< HEAD
 cifar-10-python
+=======
+#dataset
+cifar-10-batches-bin/
+
+#runfile
+load_data_test
+>>>>>>> 3f492de2ecab5b108faa8baab7794d33622f0aed
