@@ -2,6 +2,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <stdio.h>
+#include <stdlib.h> // For malloc/free
 
 // --- CUDA ERROR CHECKING MACRO ---
 #define checkCudaErrors(val) check_cuda((val), #val, __FILE__, __LINE__)
@@ -21,31 +22,32 @@ __device__ inline int get_idx_dev(int b, int h, int w, int c, int H, int W, int 
 }
 
 // Helper to zero out memory (Crucial for backward passes that use atomicAdd or accumulation)
-__global__ void fill_zeros(float* data, int size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void fill_zeros(float* data, size_t size) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) data[idx] = 0.0f;
 }
 
 // --- KERNEL LAUNCH CONFIGURATION ---
-dim3 get_1d_dims(int total_size) {
+dim3 get_1d_dims(size_t total_size) {
     const int THREADS_PER_BLOCK = 256;
-    int blocks = (total_size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    // We cast total_size to int for division, assuming total_size fits within standard integer limits
+    int blocks = (int)((total_size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
     return dim3(blocks, 1, 1);
 }
 
 // ====================================================================
-//                             1. CONVOLUTION
+//                          1. CONVOLUTION
 // ====================================================================
 
-// --- FORWARD KERNEL ---
+// --- FORWARD KERNEL (Field names corrected to match ConvParam_G) ---
 __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_output_size = p.batch * p.out_h * p.out_w * p.out_c;
+    int total_output_size = p.B * p.H_out * p.W_out * p.C_out;
 
     if (out_idx < total_output_size) {
-        int C = p.out_c;
-        int W = p.out_w;
-        int H = p.out_h;
+        int C = p.C_out;
+        int W = p.W_out;
+        int H = p.H_out;
 
         int oc = out_idx % C;
         int temp = out_idx / C;
@@ -56,19 +58,21 @@ __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* o
 
         float sum = bias[oc];
 
-        for (int ic = 0; ic < p.in_c; ++ic) {
-            for (int kh = 0; kh < p.k_size; ++kh) {
-                for (int kw = 0; kw < p.k_size; ++kw) {
-                    int ih = oh * p.stride - p.padding + kh;
-                    int iw = ow * p.stride - p.padding + kw;
+        // Iterate over input channels, kernel height, and width
+        for (int ic = 0; ic < p.C_in; ++ic) {
+            for (int kh = 0; kh < p.K; ++kh) {
+                for (int kw = 0; kw < p.K; ++kw) {
+                    // Calculate input indices (ih, iw)
+                    int ih = oh * p.S - p.P + kh;
+                    int iw = ow * p.S - p.P + kw;
 
-                    if (ih >= 0 && ih < p.in_h && iw >= 0 && iw < p.in_w) {
-                        int in_idx = get_idx_dev(b, ih, iw, ic, p.in_h, p.in_w, p.in_c);
+                    if (ih >= 0 && ih < p.H_in && iw >= 0 && iw < p.W_in) {
+                        int in_idx = get_idx_dev(b, ih, iw, ic, p.H_in, p.W_in, p.C_in);
                         
-                        // Weight layout: [out_c][in_c][k][k]
-                        int w_idx = oc * (p.in_c * p.k_size * p.k_size) 
-                                  + ic * (p.k_size * p.k_size) 
-                                  + kh * p.k_size + kw;
+                        // Weight layout: [C_out][C_in][K][K]
+                        int w_idx = oc * (p.C_in * p.K * p.K) 
+                                  + ic * (p.K * p.K) 
+                                  + kh * p.K + kw;
 
                         sum += input[in_idx] * weight[w_idx];
                     }
@@ -79,41 +83,43 @@ __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* o
     }
 }
 
-// --- BACKWARD KERNELS ---
+// --- BACKWARD KERNELS (Field names corrected) ---
 
 // 1. Calculate Gradients w.r.t Input (d_input)
-// This effectively performs a "transposed convolution" or "deconvolution" logic
 __global__ void conv2d_backward_input_kernel(float* d_output, float* weight, float* d_input, ConvParam_G p) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_in_size = p.batch * p.in_h * p.in_w * p.in_c;
+    int total_in_size = p.B * p.H_in * p.W_in * p.C_in;
 
     if (idx < total_in_size) {
-        int c = idx % p.in_c;
-        int temp = idx / p.in_c;
-        int w = temp % p.in_w;
-        temp = temp / p.in_w;
-        int h = temp % p.in_h;
-        int b = temp / p.in_h;
+        int c = idx % p.C_in;
+        int temp = idx / p.C_in;
+        int w = temp % p.W_in;
+        temp = temp / p.W_in;
+        int h = temp % p.H_in;
+        int b = temp / p.H_in;
 
         float sum = 0.0f;
 
         // Iterate over output channels and kernel window
-        for (int oc = 0; oc < p.out_c; ++oc) {
-            for (int kh = 0; kh < p.k_size; ++kh) {
-                for (int kw = 0; kw < p.k_size; ++kw) {
+        for (int oc = 0; oc < p.C_out; ++oc) {
+            for (int kh = 0; kh < p.K; ++kh) {
+                for (int kw = 0; kw < p.K; ++kw) {
                     // Logic to find the output pixel that this input pixel contributed to
-                    int h_shifted = h + p.padding - kh;
-                    int w_shifted = w + p.padding - kw;
+                    // This is essentially reverse mapping the convolution indices.
+                    int h_shifted = h + p.P - kh;
+                    int w_shifted = w + p.P - kw;
 
-                    if (h_shifted % p.stride == 0 && w_shifted % p.stride == 0) {
-                        int oh = h_shifted / p.stride;
-                        int ow = w_shifted / p.stride;
+                    if (h_shifted % p.S == 0 && w_shifted % p.S == 0) {
+                        int oh = h_shifted / p.S;
+                        int ow = w_shifted / p.S;
 
-                        if (oh >= 0 && oh < p.out_h && ow >= 0 && ow < p.out_w) {
-                            int out_idx = get_idx_dev(b, oh, ow, oc, p.out_h, p.out_w, p.out_c);
-                            int w_idx = oc * (p.in_c * p.k_size * p.k_size) 
-                                      + c * (p.k_size * p.k_size) 
-                                      + kh * p.k_size + kw;
+                        if (oh >= 0 && oh < p.H_out && ow >= 0 && ow < p.W_out) {
+                            int out_idx = get_idx_dev(b, oh, ow, oc, p.H_out, p.W_out, p.C_out);
+                            
+                            // Weight layout: [C_out][C_in][K][K]
+                            int w_idx = oc * (p.C_in * p.K * p.K) 
+                                      + c * (p.K * p.K) 
+                                      + kh * p.K + kw;
                             sum += d_output[out_idx] * weight[w_idx];
                         }
                     }
@@ -127,28 +133,28 @@ __global__ void conv2d_backward_input_kernel(float* d_output, float* weight, flo
 // 2. Calculate Gradients w.r.t Weights (d_weight)
 __global__ void conv2d_backward_weight_kernel(float* d_output, float* input, float* d_weight, ConvParam_G p) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_weights = p.out_c * p.in_c * p.k_size * p.k_size;
+    int total_weights = p.C_out * p.C_in * p.K * p.K;
 
     if (idx < total_weights) {
-        int kw = idx % p.k_size;
-        int temp = idx / p.k_size;
-        int kh = temp % p.k_size;
-        temp = temp / p.k_size;
-        int ic = temp % p.in_c;
-        int oc = temp / p.in_c;
+        int kw = idx % p.K;
+        int temp = idx / p.K;
+        int kh = temp % p.K;
+        temp = temp / p.K;
+        int ic = temp % p.C_in;
+        int oc = temp / p.C_in;
 
         float sum = 0.0f;
 
         // Sum gradients over the entire batch and image spatial dimensions
-        for (int b = 0; b < p.batch; ++b) {
-            for (int oh = 0; oh < p.out_h; ++oh) {
-                for (int ow = 0; ow < p.out_w; ++ow) {
-                    int ih = oh * p.stride - p.padding + kh;
-                    int iw = ow * p.stride - p.padding + kw;
+        for (int b = 0; b < p.B; ++b) {
+            for (int oh = 0; oh < p.H_out; ++oh) {
+                for (int ow = 0; ow < p.W_out; ++ow) {
+                    int ih = oh * p.S - p.P + kh;
+                    int iw = ow * p.S - p.P + kw;
 
-                    if (ih >= 0 && ih < p.in_h && iw >= 0 && iw < p.in_w) {
-                        int in_idx = get_idx_dev(b, ih, iw, ic, p.in_h, p.in_w, p.in_c);
-                        int out_idx = get_idx_dev(b, oh, ow, oc, p.out_h, p.out_w, p.out_c);
+                    if (ih >= 0 && ih < p.H_in && iw >= 0 && iw < p.W_in) {
+                        int in_idx = get_idx_dev(b, ih, iw, ic, p.H_in, p.W_in, p.C_in);
+                        int out_idx = get_idx_dev(b, oh, ow, oc, p.H_out, p.W_out, p.C_out);
                         sum += input[in_idx] * d_output[out_idx];
                     }
                 }
@@ -161,12 +167,12 @@ __global__ void conv2d_backward_weight_kernel(float* d_output, float* input, flo
 // 3. Calculate Gradients w.r.t Bias (d_bias)
 __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, ConvParam_G p) {
     int oc = blockIdx.x * blockDim.x + threadIdx.x;
-    if (oc < p.out_c) {
+    if (oc < p.C_out) {
         float sum = 0.0f;
-        for (int b = 0; b < p.batch; ++b) {
-            for (int h = 0; h < p.out_h; ++h) {
-                for (int w = 0; w < p.out_w; ++w) {
-                    int out_idx = get_idx_dev(b, h, w, oc, p.out_h, p.out_w, p.out_c);
+        for (int b = 0; b < p.B; ++b) {
+            for (int h = 0; h < p.H_out; ++h) {
+                for (int w = 0; w < p.W_out; ++w) {
+                    int out_idx = get_idx_dev(b, h, w, oc, p.H_out, p.W_out, p.C_out);
                     sum += d_output[out_idx];
                 }
             }
@@ -176,64 +182,70 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 }
 
 // --- HOST WRAPPERS ---
-void conv2d(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
-    int total_output_size = p.batch * p.out_h * p.out_w * p.out_c;
+
+// Renamed from conv2d to conv2d_gpu to match kernels.h
+extern "C" void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
+    size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
-void conv2d_backward(float* d_output, float* input, float* weight, 
-                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
+// Renamed from conv2d_backward to conv2d_backward_gpu to match kernels.h
+extern "C" void conv2d_backward_gpu(float* d_output, float* input, float* weight, 
+                                    float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
-    int in_size = p.batch * p.in_h * p.in_w * p.in_c;
+    size_t in_size = (size_t)p.B * p.H_in * p.W_in * p.C_in;
     fill_zeros<<<get_1d_dims(in_size), 256>>>(d_input, in_size); // Clear memory first
     conv2d_backward_input_kernel<<<get_1d_dims(in_size), 256>>>(d_output, weight, d_input, p);
     checkCudaErrors(cudaGetLastError());
 
     // 2. Calculate d_weight
-    int w_size = p.out_c * p.in_c * p.k_size * p.k_size;
-    // Note: d_weight does not need clearing as the kernel overwrites it (assignment, not accumulation)
+    size_t w_size = (size_t)p.C_out * p.C_in * p.K * p.K;
+    // d_weight does not strictly require zeroing if the kernel uses assignment, but it's safer
+    fill_zeros<<<get_1d_dims(w_size), 256>>>(d_weight, w_size); 
     conv2d_backward_weight_kernel<<<get_1d_dims(w_size), 256>>>(d_output, input, d_weight, p);
     checkCudaErrors(cudaGetLastError());
 
     // 3. Calculate d_bias
-    conv2d_backward_bias_kernel<<<get_1d_dims(p.out_c), 256>>>(d_output, d_bias, p);
+    size_t bias_size = (size_t)p.C_out;
+    // d_bias does not strictly require zeroing if the kernel uses assignment, but it's safer
+    fill_zeros<<<get_1d_dims(bias_size), 256>>>(d_bias, bias_size);
+    conv2d_backward_bias_kernel<<<get_1d_dims(bias_size), 256>>>(d_output, d_bias, p);
     checkCudaErrors(cudaGetLastError());
 }
 
 
-
 // ====================================================================
-//                             2. ReLU ACTIVATION
+//                          2. ReLU ACTIVATION
 // ====================================================================
 
-__global__ void relu_kernel(float* data, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void relu_kernel(float* data, size_t size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         data[i] = (data[i] < 0.0f) ? 0.0f : data[i];
     }
 }
 
-__global__ void relu_backward_kernel(float* d_output, float* input, float* d_input, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void relu_backward_kernel(float* d_output, float* input, float* d_input, size_t size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         d_input[i] = (input[i] > 0) ? d_output[i] : 0.0f;
     }
 }
 
-void relu(float* data, int size) {
+extern "C" void relu(float* data, size_t size) {
     relu_kernel<<<get_1d_dims(size), 256>>>(data, size);
     checkCudaErrors(cudaGetLastError());
 }
 
-void relu_backward(float* d_output, float* input, float* d_input, int size) {
+extern "C" void relu_backward(float* d_output, float* input, float* d_input, size_t size) {
     relu_backward_kernel<<<get_1d_dims(size), 256>>>(d_output, input, d_input, size);
     checkCudaErrors(cudaGetLastError());
 }
 
 // ====================================================================
-//                             3. MAX POOLING
+//                          3. MAX POOLING
 // ====================================================================
 
 // --- FORWARD KERNEL ---
@@ -272,7 +284,7 @@ __global__ void maxpool_kernel(float* input, float* output, int batch, int in_h,
 
 // --- BACKWARD KERNEL ---
 __global__ void maxpool_backward_kernel(float* d_output, float* input, float* d_input, 
-                                        int batch, int in_h, int in_w, int in_c) {
+                                         int batch, int in_h, int in_w, int in_c) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int out_h = in_h / 2;
     int out_w = in_w / 2;
@@ -312,28 +324,28 @@ __global__ void maxpool_backward_kernel(float* d_output, float* input, float* d_
     }
 }
 
-void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
+extern "C" void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_h = in_h / 2;
     int out_w = in_w / 2;
-    int total_output_size = batch * out_h * out_w * in_c;
+    size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
     maxpool_kernel<<<get_1d_dims(total_output_size), 256>>>(input, output, batch, in_h, in_w, in_c);
     checkCudaErrors(cudaGetLastError());
 }
 
-void maxpool_backward(float* d_output, float* input, float* d_input, 
-                      int batch, int in_h, int in_w, int in_c) {
-    int size_input = batch * in_h * in_w * in_c;
+extern "C" void maxpool_backward(float* d_output, float* input, float* d_input, 
+                                 int batch, int in_h, int in_w, int in_c) {
+    size_t size_input = (size_t)batch * in_h * in_w * in_c;
     fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Must clear accumulator
 
     int out_h = in_h / 2;
     int out_w = in_w / 2;
-    int size_output = batch * out_h * out_w * in_c;
+    size_t size_output = (size_t)batch * out_h * out_w * in_c;
     maxpool_backward_kernel<<<get_1d_dims(size_output), 256>>>(d_output, input, d_input, batch, in_h, in_w, in_c);
     checkCudaErrors(cudaGetLastError());
 }
 
 // ====================================================================
-//                             4. UPSAMPLE
+//                          4. UPSAMPLE
 // ====================================================================
 
 // --- FORWARD KERNEL ---
@@ -393,38 +405,52 @@ __global__ void upsample_backward_kernel(float* d_output, float* d_input,
     }
 }
 
-void upsample(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
+extern "C" void upsample(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_h = in_h * 2;
     int out_w = in_w * 2;
-    int total_output_size = batch * out_h * out_w * in_c;
+    size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
     upsample_kernel<<<get_1d_dims(total_output_size), 256>>>(input, output, batch, in_h, in_w, in_c);
     checkCudaErrors(cudaGetLastError());
 }
 
-void upsample_backward(float* d_output, float* d_input, int batch, int in_h, int in_w, int in_c) {
-    int size_input = batch * in_h * in_w * in_c;
+extern "C" void upsample_backward(float* d_output, float* d_input, int batch, int in_h, int in_w, int in_c) {
+    size_t size_input = (size_t)batch * in_h * in_w * in_c;
     fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Clear accumulator
 
     int out_h = in_h * 2;
     int out_w = in_w * 2;
-    int size_output = batch * out_h * out_w * in_c;
+    size_t size_output = (size_t)batch * out_h * out_w * in_c;
     upsample_backward_kernel<<<get_1d_dims(size_output), 256>>>(d_output, d_input, batch, in_h, in_w, in_c);
     checkCudaErrors(cudaGetLastError());
 }
 
 // ====================================================================
-//                             5. MSE LOSS
+//                          5. MSE LOSS
 // ====================================================================
 
-__global__ void mse_diff_kernel(float* pred, float* target, float* diff_sq, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void mse_diff_kernel(float* pred, float* target, float* diff_sq, size_t size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         float diff = pred[i] - target[i];
         diff_sq[i] = diff * diff;
     }
 }
 
-float mse_loss(float* pred, float* target, int size) {
+// Backward kernel for MSE: dL/d(pred) = 2 * (pred - target) / N
+__global__ void mse_backward_kernel(float* pred, float* target, float* grad_out, size_t size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        // The gradient is (2 * difference) / size. 
+        // We defer the division by 'size' (N) to the host side if this is the final loss component.
+        // For simplicity, we calculate the raw difference (d(pred-target)) here.
+        // In the context of a simple autoencoder where this is the last layer, 
+        // we usually calculate (pred - target) and let the outer layers handle the 1/N scaling.
+        grad_out[i] = 2.0f * (pred[i] - target[i]) / size; 
+    }
+}
+
+
+extern "C" float mse_loss(float* pred, float* target, size_t size) {
     float* diff_sq_d;
     checkCudaErrors(cudaMalloc((void**)&diff_sq_d, size * sizeof(float)));
 
@@ -435,29 +461,34 @@ float mse_loss(float* pred, float* target, int size) {
     float* diff_sq_h = (float*)malloc(size * sizeof(float));
     checkCudaErrors(cudaMemcpy(diff_sq_h, diff_sq_d, size * sizeof(float), cudaMemcpyDeviceToHost));
     
-    float sum = 0.0f;
-    for (int i = 0; i < size; ++i) {
+    double sum = 0.0; // Use double for accumulation to prevent overflow
+    for (size_t i = 0; i < size; ++i) {
         sum += diff_sq_h[i];
     }
 
     checkCudaErrors(cudaFree(diff_sq_d));
     free(diff_sq_h);
     
-    return sum / size;
+    return (float)(sum / size);
+}
+
+extern "C" void mse_backward(float* pred, float* target, float* grad_out, size_t size) {
+    mse_backward_kernel<<<get_1d_dims(size), 256>>>(pred, target, grad_out, size);
+    checkCudaErrors(cudaGetLastError());
 }
 
 // ====================================================================
-//                             6. OPTIMIZER
+//                          6. OPTIMIZER
 // ====================================================================
 
-__global__ void update_weights_kernel(float* weights, float* d_weights, int size, float lr) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void update_weights_kernel(float* weights, float* d_weights, size_t size, float lr) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         weights[i] = weights[i] - lr * d_weights[i];
     }
 }
 
-void update_weights(float* weights, float* d_weights, int size, float lr) {
+extern "C" void update_weights(float* weights, float* d_weights, size_t size, float lr) {
     update_weights_kernel<<<get_1d_dims(size), 256>>>(weights, d_weights, size, lr);
     checkCudaErrors(cudaGetLastError());
 }
