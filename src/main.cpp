@@ -4,7 +4,7 @@
 int main() {
     // Giả sử folder chứa các file .bin nằm ở "./cifar-10-batches-bin"
     // Bạn cần tải dataset về và giải nén trước khi chạy
-    std::string dataset_path = "cifar-10-batches-bin"; 
+    std::string dataset_path = "../data/cifar-10-batches-bin"; 
 
     CIFAR10Dataset dataset(dataset_path);
     dataset.load_data();
