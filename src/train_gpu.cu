@@ -5,7 +5,7 @@
 #include <fstream>
 #include <chrono>
 #include "cifar10_dataset.h"
-#include "kernels.h" // Includes ConvParam struct and all function prototypes
+#include "kernels.h" // Includes ConvParam_G struct and all function prototypes
 #include <cuda_runtime.h> // For cudaMalloc/cudaMemcpy
 
 // --- Custom CUDA Error Checking Utility ---
@@ -173,27 +173,27 @@ int main() {
             d_input_batch = d_input_h_buffer; 
 
             // --- FORWARD PASS (USING DEVICE POINTERS) ---
-            ConvParam p1 = {BATCH, 32, 32, 3, 32, 32, 256, 3, 1, 1};
+            ConvParam_G p1 = {BATCH, 32, 32, 3, 32, 32, 256, 3, 1, 1};
             conv2d(d_input_batch, d_w1, d_b1, d_l1_out, p1);
             relu(d_l1_out, l1_out_size);
             maxpool(d_l1_out, d_l1_pool, BATCH, 32, 32, 256);
 
-            ConvParam p2 = {BATCH, 16, 16, 256, 16, 16, 128, 3, 1, 1};
+            ConvParam_G p2 = {BATCH, 16, 16, 256, 16, 16, 128, 3, 1, 1};
             conv2d(d_l1_pool, d_w2, d_b2, d_l2_out, p2);
             relu(d_l2_out, l2_out_size);
             maxpool(d_l2_out, d_latent, BATCH, 16, 16, 128);
 
-            ConvParam p3 = {BATCH, 8, 8, 128, 8, 8, 128, 3, 1, 1};
+            ConvParam_G p3 = {BATCH, 8, 8, 128, 8, 8, 128, 3, 1, 1};
             conv2d(d_latent, d_w3, d_b3, d_l3_out, p3);
             relu(d_l3_out, latent_size);
             upsample(d_l3_out, d_l3_up, BATCH, 8, 8, 128);
 
-            ConvParam p4 = {BATCH, 16, 16, 128, 16, 16, 256, 3, 1, 1};
+            ConvParam_G p4 = {BATCH, 16, 16, 128, 16, 16, 256, 3, 1, 1};
             conv2d(d_l3_up, d_w4, d_b4, d_l4_out, p4);
             relu(d_l4_out, l1_out_size);
             upsample(d_l4_out, d_l4_up, BATCH, 16, 16, 256);
 
-            ConvParam p5 = {BATCH, 32, 32, 256, 32, 32, 3, 3, 1, 1};
+            ConvParam_G p5 = {BATCH, 32, 32, 256, 32, 32, 3, 3, 1, 1};
             conv2d(d_l4_up, d_w5, d_b5, d_final_out, p5);
 
             // Loss: Calculated on Device, result copied back to Host
