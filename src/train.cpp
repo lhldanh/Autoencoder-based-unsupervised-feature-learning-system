@@ -33,7 +33,7 @@ void save_weights(const std::string& filename, const std::vector<float>& data) {
 int main() {
     // 1. CONFIG & DATA
     int BATCH = 32;
-    int EPOCHS = 2;
+    int EPOCHS = 50;
     int MAX_IMAGES = 100; // Giới hạn số ảnh để chạy nhanh trên CPU
     float LR = 0.001f;
 
