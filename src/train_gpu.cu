@@ -8,6 +8,22 @@
 #include "kernels.h" // Includes ConvParam struct and all function prototypes
 #include <cuda_runtime.h> // For cudaMalloc/cudaMemcpy
 
+// --- Custom CUDA Error Checking Utility ---
+// Definition for checkCudaErrors, which was undefined in the original compilation output.
+void checkCudaErrors(cudaError_t code) {
+    if (code != cudaSuccess) {
+        std::cerr << "CUDA Error: " << cudaGetErrorString(code) << " (Code: " << code << ")\n";
+        exit(code);
+    }
+}
+
+// --- Forward Declarations for Missing Kernel Prototypes ---
+// These are added to resolve the "identifier is undefined" errors for the loss functions,
+// as they are expected to be implemented in a separate CUDA file (linked later).
+extern "C" float mse_loss(float* output, float* target, size_t size);
+extern "C" void mse_backward(float* output, float* target, float* grad_out, size_t size);
+
+
 // Utility for Xavier initialization
 void init_random(std::vector<float>& vec, int fan_in, int fan_out) {
     std::random_device rd;
@@ -56,15 +72,15 @@ int main() {
 
     // --- HOST WEIGHTS AND BIASES (H_ stands for Host) ---
     // These vectors are kept on the host to hold the initial values and final results.
-    std::vector<float> h_w1(256*3*3*3);     init_random(h_w1, 3*3*3, 256*3*3);
+    std::vector<float> h_w1(256*3*3*3);      init_random(h_w1, 3*3*3, 256*3*3);
     std::vector<float> h_b1(256, 0.0f);
-    std::vector<float> h_w2(128*256*3*3);   init_random(h_w2, 256*3*3, 128*3*3);
+    std::vector<float> h_w2(128*256*3*3);    init_random(h_w2, 256*3*3, 128*3*3);
     std::vector<float> h_b2(128, 0.0f);
-    std::vector<float> h_w3(128*128*3*3);   init_random(h_w3, 128*3*3, 128*3*3);
+    std::vector<float> h_w3(128*128*3*3);    init_random(h_w3, 128*3*3, 128*3*3);
     std::vector<float> h_b3(128, 0.0f);
-    std::vector<float> h_w4(256*128*3*3);   init_random(h_w4, 128*3*3, 256*3*3);
+    std::vector<float> h_w4(256*128*3*3);    init_random(h_w4, 128*3*3, 256*3*3);
     std::vector<float> h_b4(256, 0.0f);
-    std::vector<float> h_w5(3*256*3*3);     init_random(h_w5, 256*3*3, 3*3*3);
+    std::vector<float> h_w5(3*256*3*3);      init_random(h_w5, 256*3*3, 3*3*3);
     std::vector<float> h_b5(3, 0.0f);
 
     // --- DEVICE POINTERS (D_ stands for Device) ---
@@ -148,9 +164,9 @@ int main() {
             size_t offset = (size_t)b * BATCH * 32 * 32 * 3;
             // Use d_input_h_buffer as a temporary host vector to read from dataset
             checkCudaErrors(cudaMemcpy(d_input_h_buffer, 
-                                       dataset.get_train_images_ptr() + offset, 
-                                       input_size * sizeof(float), 
-                                       cudaMemcpyHostToDevice));
+                                     dataset.get_train_images_ptr() + offset, 
+                                     input_size * sizeof(float), 
+                                     cudaMemcpyHostToDevice));
             
             // Note: The first input buffer (d_input_batch) needs the batch data
             // We use the temporary buffer as input to the first layer.
