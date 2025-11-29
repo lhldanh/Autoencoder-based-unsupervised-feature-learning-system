@@ -174,27 +174,27 @@ int main() {
 
             // --- FORWARD PASS (USING DEVICE POINTERS) ---
             ConvParam_G p1 = {BATCH, 32, 32, 3, 32, 32, 256, 3, 1, 1};
-            conv2d(d_input_batch, d_w1, d_b1, d_l1_out, p1);
+            conv2d_gpu(d_input_batch, d_w1, d_b1, d_l1_out, p1);
             relu(d_l1_out, l1_out_size);
             maxpool(d_l1_out, d_l1_pool, BATCH, 32, 32, 256);
 
             ConvParam_G p2 = {BATCH, 16, 16, 256, 16, 16, 128, 3, 1, 1};
-            conv2d(d_l1_pool, d_w2, d_b2, d_l2_out, p2);
+            conv2d_gpu(d_l1_pool, d_w2, d_b2, d_l2_out, p2);
             relu(d_l2_out, l2_out_size);
             maxpool(d_l2_out, d_latent, BATCH, 16, 16, 128);
 
             ConvParam_G p3 = {BATCH, 8, 8, 128, 8, 8, 128, 3, 1, 1};
-            conv2d(d_latent, d_w3, d_b3, d_l3_out, p3);
+            conv2d_gpu(d_latent, d_w3, d_b3, d_l3_out, p3);
             relu(d_l3_out, latent_size);
             upsample(d_l3_out, d_l3_up, BATCH, 8, 8, 128);
 
             ConvParam_G p4 = {BATCH, 16, 16, 128, 16, 16, 256, 3, 1, 1};
-            conv2d(d_l3_up, d_w4, d_b4, d_l4_out, p4);
+            conv2d_gpu(d_l3_up, d_w4, d_b4, d_l4_out, p4);
             relu(d_l4_out, l1_out_size);
             upsample(d_l4_out, d_l4_up, BATCH, 16, 16, 256);
 
             ConvParam_G p5 = {BATCH, 32, 32, 256, 32, 32, 3, 3, 1, 1};
-            conv2d(d_l4_up, d_w5, d_b5, d_final_out, p5);
+            conv2d_gpu(d_l4_up, d_w5, d_b5, d_final_out, p5);
 
             // Loss: Calculated on Device, result copied back to Host
             float loss = mse_loss(d_final_out, d_input_batch, final_out_size);
@@ -207,24 +207,24 @@ int main() {
             mse_backward(d_final_out, d_input_batch, d_d_final_out, final_out_size);
 
             // 2. Decoder Layers (L5 -> L3)
-            conv2d_backward(d_d_final_out, d_l4_up, d_w5, d_d_l4_up, d_dw5, d_db5, p5);
+            conv2d_gpu_backward(d_d_final_out, d_l4_up, d_w5, d_d_l4_up, d_dw5, d_db5, p5);
 
             upsample_backward(d_d_l4_up, d_d_l4_out, BATCH, 16, 16, 256);
             relu_backward(d_d_l4_out, d_l4_out, d_d_l4_out, l1_out_size);
-            conv2d_backward(d_d_l4_out, d_l3_up, d_w4, d_d_l3_up, d_dw4, d_db4, p4);
+            conv2d_gpu_backward(d_d_l4_out, d_l3_up, d_w4, d_d_l3_up, d_dw4, d_db4, p4);
 
             upsample_backward(d_d_l3_up, d_d_l3_out, BATCH, 8, 8, 128);
             relu_backward(d_d_l3_out, d_l3_out, d_d_l3_out, latent_size);
-            conv2d_backward(d_d_l3_out, d_latent, d_w3, d_d_latent, d_dw3, d_db3, p3);
+            conv2d_gpu_backward(d_d_l3_out, d_latent, d_w3, d_d_latent, d_dw3, d_db3, p3);
 
             // 3. Encoder Layers (L2 -> L1)
             maxpool_backward(d_d_latent, d_l2_out, d_d_l2_out, BATCH, 16, 16, 128);
             relu_backward(d_d_l2_out, d_l2_out, d_d_l2_out, l2_out_size);
-            conv2d_backward(d_d_l2_out, d_l1_pool, d_w2, d_d_l1_pool, d_dw2, d_db2, p2);
+            conv2d_gpu_backward(d_d_l2_out, d_l1_pool, d_w2, d_d_l1_pool, d_dw2, d_db2, p2);
 
             maxpool_backward(d_d_l1_pool, d_l1_out, d_d_l1_out, BATCH, 32, 32, 256);
             relu_backward(d_d_l1_out, d_l1_out, d_d_l1_out, l1_out_size);
-            conv2d_backward(d_d_l1_out, d_input_batch, d_w1, d_d_input, d_dw1, d_db1, p1);
+            conv2d_gpu_backward(d_d_l1_out, d_input_batch, d_w1, d_d_input, d_dw1, d_db1, p1);
 
             // --- UPDATE WEIGHTS (USING DEVICE POINTERS) ---
             update_weights(d_w1, d_dw1, h_w1.size(), LR);
