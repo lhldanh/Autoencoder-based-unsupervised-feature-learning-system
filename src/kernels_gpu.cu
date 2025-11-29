@@ -183,15 +183,15 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 
 // --- HOST WRAPPERS ---
 
-// Renamed from conv2d to conv2d_gpu to match kernels.h
+// Forward Convolution (conv2d_gpu)
 extern "C" void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
-// Renamed from conv2d_backward to conv2d_backward_gpu to match kernels.h
-extern "C" void conv2d_backward_gpu(float* d_output, float* input, float* weight, 
+// Backward Convolution (conv2d_gpu_backward) (UPDATED NAME)
+extern "C" void conv2d_gpu_backward(float* d_output, float* input, float* weight, 
                                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
@@ -441,10 +441,6 @@ __global__ void mse_backward_kernel(float* pred, float* target, float* grad_out,
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         // The gradient is (2 * difference) / size. 
-        // We defer the division by 'size' (N) to the host side if this is the final loss component.
-        // For simplicity, we calculate the raw difference (d(pred-target)) here.
-        // In the context of a simple autoencoder where this is the last layer, 
-        // we usually calculate (pred - target) and let the outer layers handle the 1/N scaling.
         grad_out[i] = 2.0f * (pred[i] - target[i]) / size; 
     }
 }
