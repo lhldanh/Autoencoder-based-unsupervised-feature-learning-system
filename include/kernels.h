@@ -82,5 +82,5 @@ void upsample_backward_gpu(const float* d_d_output, float* d_d_input, int B, int
 
 void update_weights_gpu(float* d_weights, const float* d_gradients, size_t size, float lr);
 
-void conv2d_backward_gpu(const float* d_d_output, const float* d_input, const float* d_weights,
+void conv2d_gpu_backward(const float* d_d_output, const float* d_input, const float* d_weights,
                          float* d_d_input, float* d_d_weights, float* d_d_bias, const ConvParam_G& p);

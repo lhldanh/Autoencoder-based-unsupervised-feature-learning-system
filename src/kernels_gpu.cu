@@ -184,14 +184,14 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 // --- HOST WRAPPERS ---
 
 // Forward Convolution (conv2d_gpu)
-__global__ void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
+extern "C" void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
 // Backward Convolution (conv2d_gpu_backward) (UPDATED NAME)
-__global__ void conv2d_gpu_backward(float* d_output, float* input, float* weight, 
+extern "C" void conv2d_gpu_backward(float* d_output, float* input, float* weight, 
                                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
