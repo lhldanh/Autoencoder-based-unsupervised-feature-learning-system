@@ -45,3 +45,6 @@ data/
 
 #runfile
 build/
+
+#weights
+weights/
