@@ -38,7 +38,7 @@ void update_weights(float* weights, float* d_weights, int size, float lr);
 #include <cstddef> // for size_t
 
 // Structure for Convolution Parameters
-struct ConvParam {
+struct ConvParam_G {
     int B, H_in, W_in, C_in; // Batch, Height In, Width In, Channels In
     int H_out, W_out, C_out; // Height Out, Width Out, Channels Out
     int K, S, P;             // Kernel size, Stride, Padding

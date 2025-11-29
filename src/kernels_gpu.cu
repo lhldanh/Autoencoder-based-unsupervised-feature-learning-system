@@ -38,7 +38,7 @@ dim3 get_1d_dims(int total_size) {
 // ====================================================================
 
 // --- FORWARD KERNEL ---
-__global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam p) {
+__global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total_output_size = p.batch * p.out_h * p.out_w * p.out_c;
 
@@ -83,7 +83,7 @@ __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* o
 
 // 1. Calculate Gradients w.r.t Input (d_input)
 // This effectively performs a "transposed convolution" or "deconvolution" logic
-__global__ void conv2d_backward_input_kernel(float* d_output, float* weight, float* d_input, ConvParam p) {
+__global__ void conv2d_backward_input_kernel(float* d_output, float* weight, float* d_input, ConvParam_G p) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total_in_size = p.batch * p.in_h * p.in_w * p.in_c;
 
@@ -125,7 +125,7 @@ __global__ void conv2d_backward_input_kernel(float* d_output, float* weight, flo
 }
 
 // 2. Calculate Gradients w.r.t Weights (d_weight)
-__global__ void conv2d_backward_weight_kernel(float* d_output, float* input, float* d_weight, ConvParam p) {
+__global__ void conv2d_backward_weight_kernel(float* d_output, float* input, float* d_weight, ConvParam_G p) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total_weights = p.out_c * p.in_c * p.k_size * p.k_size;
 
@@ -159,7 +159,7 @@ __global__ void conv2d_backward_weight_kernel(float* d_output, float* input, flo
 }
 
 // 3. Calculate Gradients w.r.t Bias (d_bias)
-__global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, ConvParam p) {
+__global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, ConvParam_G p) {
     int oc = blockIdx.x * blockDim.x + threadIdx.x;
     if (oc < p.out_c) {
         float sum = 0.0f;
@@ -176,14 +176,14 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 }
 
 // --- HOST WRAPPERS ---
-void conv2d(float* input, float* weight, float* bias, float* output, ConvParam p) {
+void conv2d(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     int total_output_size = p.batch * p.out_h * p.out_w * p.out_c;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
 void conv2d_backward(float* d_output, float* input, float* weight, 
-                     float* d_input, float* d_weight, float* d_bias, ConvParam p) {
+                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
     int in_size = p.batch * p.in_h * p.in_w * p.in_c;
