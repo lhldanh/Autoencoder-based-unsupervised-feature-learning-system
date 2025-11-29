@@ -184,14 +184,14 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 // --- HOST WRAPPERS ---
 
 // Forward Convolution (conv2d_gpu)
-extern "C" void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
+void conv2d_gpu(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
 // Backward Convolution (conv2d_gpu_backward) (UPDATED NAME)
-extern "C" void conv2d_gpu_backward(float* d_output, float* input, float* weight, 
+void conv2d_gpu_backward(float* d_output, float* input, float* weight, 
                                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
@@ -234,12 +234,12 @@ __global__ void relu_backward_kernel(float* d_output, float* input, float* d_inp
     }
 }
 
-extern "C" void relu(float* data, size_t size) {
+void relu(float* data, size_t size) {
     relu_kernel<<<get_1d_dims(size), 256>>>(data, size);
     checkCudaErrors(cudaGetLastError());
 }
 
-extern "C" void relu_backward(float* d_output, float* input, float* d_input, size_t size) {
+void relu_backward(float* d_output, float* input, float* d_input, size_t size) {
     relu_backward_kernel<<<get_1d_dims(size), 256>>>(d_output, input, d_input, size);
     checkCudaErrors(cudaGetLastError());
 }
@@ -324,7 +324,7 @@ __global__ void maxpool_backward_kernel(float* d_output, float* input, float* d_
     }
 }
 
-extern "C" void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
+void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_h = in_h / 2;
     int out_w = in_w / 2;
     size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
@@ -332,7 +332,7 @@ extern "C" void maxpool(float* input, float* output, int batch, int in_h, int in
     checkCudaErrors(cudaGetLastError());
 }
 
-extern "C" void maxpool_backward(float* d_output, float* input, float* d_input, 
+void maxpool_backward(float* d_output, float* input, float* d_input, 
                                  int batch, int in_h, int in_w, int in_c) {
     size_t size_input = (size_t)batch * in_h * in_w * in_c;
     fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Must clear accumulator
@@ -405,7 +405,7 @@ __global__ void upsample_backward_kernel(float* d_output, float* d_input,
     }
 }
 
-extern "C" void upsample(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
+void upsample(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_h = in_h * 2;
     int out_w = in_w * 2;
     size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
@@ -413,7 +413,7 @@ extern "C" void upsample(float* input, float* output, int batch, int in_h, int i
     checkCudaErrors(cudaGetLastError());
 }
 
-extern "C" void upsample_backward(float* d_output, float* d_input, int batch, int in_h, int in_w, int in_c) {
+void upsample_backward(float* d_output, float* d_input, int batch, int in_h, int in_w, int in_c) {
     size_t size_input = (size_t)batch * in_h * in_w * in_c;
     fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Clear accumulator
 
@@ -446,7 +446,7 @@ __global__ void mse_backward_kernel(float* pred, float* target, float* grad_out,
 }
 
 
-extern "C" float mse_loss(float* pred, float* target, size_t size) {
+float mse_loss(float* pred, float* target, size_t size) {
     float* diff_sq_d;
     checkCudaErrors(cudaMalloc((void**)&diff_sq_d, size * sizeof(float)));
 
@@ -468,7 +468,7 @@ extern "C" float mse_loss(float* pred, float* target, size_t size) {
     return (float)(sum / size);
 }
 
-extern "C" void mse_backward(float* pred, float* target, float* grad_out, size_t size) {
+void mse_backward(float* pred, float* target, float* grad_out, size_t size) {
     mse_backward_kernel<<<get_1d_dims(size), 256>>>(pred, target, grad_out, size);
     checkCudaErrors(cudaGetLastError());
 }
@@ -484,7 +484,7 @@ __global__ void update_weights_kernel(float* weights, float* d_weights, size_t s
     }
 }
 
-extern "C" void update_weights(float* weights, float* d_weights, size_t size, float lr) {
+void update_weights(float* weights, float* d_weights, size_t size, float lr) {
     update_weights_kernel<<<get_1d_dims(size), 256>>>(weights, d_weights, size, lr);
     checkCudaErrors(cudaGetLastError());
 }
