@@ -386,14 +386,14 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 // --- HOST WRAPPERS ---
 
 // Forward Convolution (conv2d_gpu)
-void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
+__global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
     checkCudaErrors(cudaGetLastError());
 }
 
 // Backward Convolution (conv2d_backward_kernel) (UPDATED NAME)
-void conv2d_backward_kernel(float* d_output, float* input, float* weight, 
+__global__ void conv2d_backward_kernel(float* d_output, float* input, float* weight, 
                                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
     // 1. Calculate d_input
@@ -599,7 +599,7 @@ __global__ void mse_backward_kernel(float* pred, float* target, float* grad_out,
 }
 
 
-float mse_loss_kernel(float* pred, float* target, size_t size) {
+__global__ float mse_loss_kernel(float* pred, float* target, size_t size) {
     float* diff_sq_d;
     checkCudaErrors(cudaMalloc((void**)&diff_sq_d, size * sizeof(float)));
 

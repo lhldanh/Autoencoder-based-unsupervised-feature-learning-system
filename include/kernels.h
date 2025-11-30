@@ -48,18 +48,18 @@ struct ConvParam_G {
 
 // Kernels are typically wrapped in host functions for launch configuration.
 // These functions will handle cudaMalloc/free only for temporary buffers and kernel launch.
-void conv2d_kernel(const float* d_input, const float* d_weights, const float* d_bias, float* d_output, const ConvParam_G& p);
-void relu_kernel(float* d_data, size_t size);
-void maxpool_kernel(const float* d_input, float* d_output, int B, int H_in, int W_in, int C);
-void upsample_kernel(const float* d_input, float* d_output, int B, int H_in, int W_in, int C);
+// void conv2d_kernel(const float* d_input, const float* d_weights, const float* d_bias, float* d_output, const ConvParam_G& p);
+// void relu_kernel(float* d_data, size_t size);
+// void maxpool_kernel(const float* d_input, float* d_output, int B, int H_in, int W_in, int C);
+// void upsample_kernel(const float* d_input, float* d_output, int B, int H_in, int W_in, int C);
 
-float mse_loss_kernel(const float* d_output, const float* d_target, size_t size);
+// float mse_loss_kernel(const float* d_output, const float* d_target, size_t size);
 
-void conv2d_backward_kernel(const float* d_d_output, const float* d_input, const float* d_weights,
-                         float* d_d_input, float* d_d_weights, float* d_d_bias, const ConvParam_G& p);
-void relu_backward_kernel(const float* d_d_output, const float* d_output, float* d_d_input, size_t size);
-void maxpool_backward_kernel(const float* d_d_output, const float* d_input, float* d_d_input, 
-                          int B, int H_in, int W_in, int C);
-void upsample_backward_kernel(const float* d_d_output, float* d_d_input, int B, int H_in, int W_in, int C);
+// void conv2d_backward_kernel(const float* d_d_output, const float* d_input, const float* d_weights,
+//                          float* d_d_input, float* d_d_weights, float* d_d_bias, const ConvParam_G& p);
+// void relu_backward_kernel(const float* d_d_output, const float* d_output, float* d_d_input, size_t size);
+// void maxpool_backward_kernel(const float* d_d_output, const float* d_input, float* d_d_input, 
+//                           int B, int H_in, int W_in, int C);
+// void upsample_backward_kernel(const float* d_d_output, float* d_d_input, int B, int H_in, int W_in, int C);
 
-void update_weights_kernel(float* d_weights, const float* d_gradients, size_t size, float lr);
+// void update_weights_kernel(float* d_weights, const float* d_gradients, size_t size, float lr);
