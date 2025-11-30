@@ -173,7 +173,7 @@ __global__ void conv2d_backward_weight_kernel(float* d_output, float* input, flo
       for (int oh = 0; oh < p.H_out; ++oh) {
         for (int ow = 0; ow < p.W_out; ++ow) {
           int ih = oh * p.S - p.P + kh;
-          int iw = ow * p.S - p.P + kw;
+             int iw = ow * p.S - p.P + kw;
           if (ih >= 0 && ih < p.H_in && iw >= 0 && iw < p.W_in) {
             int in_idx = get_idx_dev(b, ih, iw, ic, p.H_in, p.W_in, p.C_in);
             int out_idx = get_idx_dev(b, oh, ow, oc, p.H_out, p.W_out, p.C_out);
