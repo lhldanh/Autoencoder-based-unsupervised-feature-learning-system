@@ -526,25 +526,25 @@ __global__ void maxpool_backward_kernel(float* d_output, float* input, float* d_
     }
 }
 
-void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
-    int out_h = in_h / 2;
-    int out_w = in_w / 2;
-    size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
-    maxpool_kernel<<<get_1d_dims(total_output_size), 256>>>(input, output, batch, in_h, in_w, in_c);
-    checkCudaErrors(cudaGetLastError());
-}
+// void maxpool(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
+//     int out_h = in_h / 2;
+//     int out_w = in_w / 2;
+//     size_t total_output_size = (size_t)batch * out_h * out_w * in_c;
+//     maxpool_kernel<<<get_1d_dims(total_output_size), 256>>>(input, output, batch, in_h, in_w, in_c);
+//     checkCudaErrors(cudaGetLastError());
+// }
 
-void maxpool_backward(float* d_output, float* input, float* d_input, 
-                                 int batch, int in_h, int in_w, int in_c) {
-    size_t size_input = (size_t)batch * in_h * in_w * in_c;
-    fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Must clear accumulator
+// void maxpool_backward(float* d_output, float* input, float* d_input, 
+//                                  int batch, int in_h, int in_w, int in_c) {
+//     size_t size_input = (size_t)batch * in_h * in_w * in_c;
+//     fill_zeros<<<get_1d_dims(size_input), 256>>>(d_input, size_input); // Must clear accumulator
 
-    int out_h = in_h / 2;
-    int out_w = in_w / 2;
-    size_t size_output = (size_t)batch * out_h * out_w * in_c;
-    maxpool_backward_kernel<<<get_1d_dims(size_output), 256>>>(d_output, input, d_input, batch, in_h, in_w, in_c);
-    checkCudaErrors(cudaGetLastError());
-}
+//     int out_h = in_h / 2;
+//     int out_w = in_w / 2;
+//     size_t size_output = (size_t)batch * out_h * out_w * in_c;
+//     maxpool_backward_kernel<<<get_1d_dims(size_output), 256>>>(d_output, input, d_input, batch, in_h, in_w, in_c);
+//     checkCudaErrors(cudaGetLastError());
+// }
 
 // ====================================================================
 //                          4. UPSAMPLE
