@@ -422,6 +422,7 @@ __global__ void update_weights_kernel(float* weights, float* d_weights, size_t s
     }
 }
 
+
 // Utility for Xavier initialization
 void init_random(std::vector<float>& vec, int fan_in, int fan_out) {
     std::random_device rd;
