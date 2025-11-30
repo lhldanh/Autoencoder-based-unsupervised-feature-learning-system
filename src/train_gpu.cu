@@ -12,8 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h> // For malloc/free
 
-// --- CUDA ERROR CHECKING MACRO ---
-#define checkCudaErrors(val) check_cuda((val), #val, __FILE__, __LINE__)
 
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
     if (result) {
@@ -405,7 +403,7 @@ __global__ void mse_backward_kernel(float* pred, float* target, float* grad_out,
 }
 
 
-__global__ float mse_loss_kernel(float* pred, float* target, size_t size) {
+float mse_loss_kernel(float* pred, float* target, size_t size) {
     float* diff_sq_d;
     checkCudaErrors(cudaMalloc((void**)&diff_sq_d, size * sizeof(float)));
 
