@@ -192,36 +192,36 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
 // --- HOST WRAPPERS ---
 
 // Forward Convolution (conv2d_gpu)
-__global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
-    size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
-    conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
-    checkCudaErrors(cudaGetLastError());
-}
+// __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
+//     size_t total_output_size = (size_t)p.B * p.H_out * p.W_out * p.C_out;
+//     conv2d_kernel<<<get_1d_dims(total_output_size), 256>>>(input, weight, bias, output, p);
+//     checkCudaErrors(cudaGetLastError());
+// }
 
-// Backward Convolution (conv2d_backward_kernel) (UPDATED NAME)
-__global__ void conv2d_backward_kernel(float* d_output, float* input, float* weight, 
-                                    float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
+// // Backward Convolution (conv2d_backward_kernel) (UPDATED NAME)
+// __global__ void conv2d_backward_kernel(float* d_output, float* input, float* weight, 
+//                                     float* d_input, float* d_weight, float* d_bias, ConvParam_G p) {
     
-    // 1. Calculate d_input
-    size_t in_size = (size_t)p.B * p.H_in * p.W_in * p.C_in;
-    fill_zeros<<<get_1d_dims(in_size), 256>>>(d_input, in_size); // Clear memory first
-    conv2d_backward_input_kernel<<<get_1d_dims(in_size), 256>>>(d_output, weight, d_input, p);
-    checkCudaErrors(cudaGetLastError());
+//     // 1. Calculate d_input
+//     size_t in_size = (size_t)p.B * p.H_in * p.W_in * p.C_in;
+//     fill_zeros<<<get_1d_dims(in_size), 256>>>(d_input, in_size); // Clear memory first
+//     conv2d_backward_input_kernel<<<get_1d_dims(in_size), 256>>>(d_output, weight, d_input, p);
+//     checkCudaErrors(cudaGetLastError());
 
-    // 2. Calculate d_weight
-    size_t w_size = (size_t)p.C_out * p.C_in * p.K * p.K;
-    // d_weight does not strictly require zeroing if the kernel uses assignment, but it's safer
-    fill_zeros<<<get_1d_dims(w_size), 256>>>(d_weight, w_size); 
-    conv2d_backward_weight_kernel<<<get_1d_dims(w_size), 256>>>(d_output, input, d_weight, p);
-    checkCudaErrors(cudaGetLastError());
+//     // 2. Calculate d_weight
+//     size_t w_size = (size_t)p.C_out * p.C_in * p.K * p.K;
+//     // d_weight does not strictly require zeroing if the kernel uses assignment, but it's safer
+//     fill_zeros<<<get_1d_dims(w_size), 256>>>(d_weight, w_size); 
+//     conv2d_backward_weight_kernel<<<get_1d_dims(w_size), 256>>>(d_output, input, d_weight, p);
+//     checkCudaErrors(cudaGetLastError());
 
-    // 3. Calculate d_bias
-    size_t bias_size = (size_t)p.C_out;
-    // d_bias does not strictly require zeroing if the kernel uses assignment, but it's safer
-    fill_zeros<<<get_1d_dims(bias_size), 256>>>(d_bias, bias_size);
-    conv2d_backward_bias_kernel<<<get_1d_dims(bias_size), 256>>>(d_output, d_bias, p);
-    checkCudaErrors(cudaGetLastError());
-}
+//     // 3. Calculate d_bias
+//     size_t bias_size = (size_t)p.C_out;
+//     // d_bias does not strictly require zeroing if the kernel uses assignment, but it's safer
+//     fill_zeros<<<get_1d_dims(bias_size), 256>>>(d_bias, bias_size);
+//     conv2d_backward_bias_kernel<<<get_1d_dims(bias_size), 256>>>(d_output, d_bias, p);
+//     checkCudaErrors(cudaGetLastError());
+// }
 
 
 // ====================================================================
