@@ -459,7 +459,7 @@ void allocate_device_buffer(float*& device_ptr, size_t size_elements) {
 
 int main() {
   // 1. CONFIG & DATA
-  int BATCH = 16;
+  int BATCH = 512;
   int EPOCHS = 10;
   int MAX_IMAGES = 1024; // Limit number of images for quick testing
   float LR = 0.001f;
