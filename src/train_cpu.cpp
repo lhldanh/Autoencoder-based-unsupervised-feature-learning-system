@@ -191,11 +191,11 @@ int main() {
     std::cout << "\nTotal Training Time: " << elapsed_total.count() << " seconds\n";
 
     std::cout << "--- SAVING FULL MODEL ---\n";
-    save_weights("../weights/enc_w1.bin", w1); save_weights("../weights/enc_b1.bin", b1);
-    save_weights("../weights/enc_w2.bin", w2); save_weights("../weights/enc_b2.bin", b2);
-    save_weights("../weights/dec_w3.bin", w3); save_weights("../weights/dec_b3.bin", b3);
-    save_weights("../weights/dec_w4.bin", w4); save_weights("../weights/dec_b4.bin", b4);
-    save_weights("../weights/dec_w5.bin", w5); save_weights("../weights/dec_b5.bin", b5);
+    // save_weights("../weights/enc_w1.bin", w1); save_weights("../weights/enc_b1.bin", b1);
+    // save_weights("../weights/enc_w2.bin", w2); save_weights("../weights/enc_b2.bin", b2);
+    // save_weights("../weights/dec_w3.bin", w3); save_weights("../weights/dec_b3.bin", b3);
+    // save_weights("../weights/dec_w4.bin", w4); save_weights("../weights/dec_b4.bin", b4);
+    // save_weights("../weights/dec_w5.bin", w5); save_weights("../weights/dec_b5.bin", b5);
 
     return 0;
 }
