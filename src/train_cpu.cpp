@@ -37,7 +37,7 @@ int main() {
     int MAX_IMAGES = 96; // Giới hạn số ảnh để chạy nhanh trên CPU
     float LR = 0.001f;
 
-    std::string data_path = "../data/cifar-10-batches-bin";
+    std::string data_path = "data/cifar-10-batches-bin";
     CIFAR10Dataset dataset(data_path);
     dataset.load_data();
     if (dataset.get_num_train() == 0) return 1;

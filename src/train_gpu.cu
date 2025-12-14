@@ -465,7 +465,7 @@ int main() {
   int MAX_IMAGES = 96; // Limit number of images for quick testing
   float LR = 0.001f;
 
-  std::string data_path = "../data/cifar-10-batches-bin";
+  std::string data_path = "data/cifar-10-batches-bin";
   CIFAR10Dataset dataset(data_path);
   dataset.load_data();
   if (dataset.get_num_train() == 0) return 1;
