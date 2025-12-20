@@ -210,7 +210,7 @@ int main() {
      
     cudaStreamSynchronize(stream_compute);
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_pinned_memory: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_pinned_memory: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     cudaFreeHost(h_pinned_input);
     cudaStreamDestroy(stream_compute);

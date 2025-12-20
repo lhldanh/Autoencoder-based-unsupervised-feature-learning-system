@@ -71,9 +71,9 @@ int main() {
     d_dw4 = pool.alloc(h_w4.size() * 4); d_db4 = pool.alloc(256 * 4);
     d_dw5 = pool.alloc(h_w5.size() * 4); d_db5 = pool.alloc(3 * 4);
     
-    // Layer buffers
-    int s_l1 = B * 32 * 32 * 256, s_p1 = B * 16 * 16 * 256;
-    int s_l2 = B * 16 * 16 * 128, s_p2 = B * 8 * 8 * 128;
+    // Layer buffers (reuse s_p1, s_p2 already declared)
+    int s_l1 = B * 32 * 32 * 256;
+    int s_l2 = B * 16 * 16 * 128;
     int s_l3 = B * 8 * 8 * 128, s_u3 = B * 16 * 16 * 128;
     int s_l4 = B * 16 * 16 * 256, s_u4 = B * 32 * 32 * 256;
     
@@ -207,7 +207,7 @@ int main() {
     }
      
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_memory_pool: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_memory_pool: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     return 0;
 }

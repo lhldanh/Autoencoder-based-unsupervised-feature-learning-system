@@ -111,27 +111,27 @@ int main() {
 
             // FORWARD using im2col + GEMM
             // Layer 1: input -> l1
-            im2col_with_bias(d_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, 0);
+            im2col(d_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, 0);
             gemm_nt_relu(d_col1, d_w1, d_l1, B*32*32, 3*9, 256, true, 0);
             maxpool_kernel<<<get_1d_dims(s_p1), 256>>>(d_l1, d_p1, B, 32, 32, 256);
 
             // Layer 2: p1 -> l2
-            im2col_with_bias(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, 0);
+            im2col(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, 0);
             gemm_nt_relu(d_col2, d_w2, d_l2, B*16*16, 256*9, 128, true, 0);
             maxpool_kernel<<<get_1d_dims(s_p2), 256>>>(d_l2, d_p2, B, 16, 16, 128);
             
             // Layer 3: p2 -> l3
-            im2col_with_bias(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, 0);
+            im2col(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, 0);
             gemm_nt_relu(d_col3, d_w3, d_l3, B*8*8, 128*9, 128, true, 0);
             upsample_kernel<<<get_1d_dims(s_u3), 256>>>(d_l3, d_u3, B, 8, 8, 128);
 
             // Layer 4: u3 -> l4
-            im2col_with_bias(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, 0);
+            im2col(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, 0);
             gemm_nt_relu(d_col4, d_w4, d_l4, B*16*16, 128*9, 256, true, 0);
             upsample_kernel<<<get_1d_dims(s_u4), 256>>>(d_l4, d_u4, B, 16, 16, 256);
 
             // Layer 5: u4 -> out
-            im2col_with_bias(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, 0);
+            im2col(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, 0);
             gemm_nt_relu(d_col5, d_w5, d_out, B*32*32, 256*9, 3, false, 0);
             checkCudaErrors(cudaGetLastError());
 
@@ -203,7 +203,7 @@ int main() {
     }
      
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_im2col: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_im2col: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     cudaFree(d_input); cudaFree(d_l1); cudaFree(d_p1); cudaFree(d_l2); cudaFree(d_p2);
     cudaFree(d_l3); cudaFree(d_u3); cudaFree(d_l4); cudaFree(d_u4); cudaFree(d_out);

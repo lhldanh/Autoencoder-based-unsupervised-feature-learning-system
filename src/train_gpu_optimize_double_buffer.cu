@@ -232,7 +232,7 @@ int main() {
     }
      
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_double_buffer: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_double_buffer: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     cudaFree(d_w1); cudaFree(d_b1); cudaFree(d_dw1); cudaFree(d_db1);
     cudaFree(d_w2); cudaFree(d_b2); cudaFree(d_dw2); cudaFree(d_db2);

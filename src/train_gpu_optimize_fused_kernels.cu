@@ -61,6 +61,14 @@ int main() {
     cudaMalloc(&d_l4, s_l4 * 4); cudaMalloc(&d_u4, s_u4 * 4);
     cudaMalloc(&d_out, s_in * 4);
     
+    // Backward buffers
+    float *d_dout, *d_du4, *d_dl4, *d_du3, *d_dl3, *d_dp2, *d_dl2, *d_dp1, *d_dl1;
+    cudaMalloc(&d_dout, s_in * 4);
+    cudaMalloc(&d_du4, s_u4 * 4); cudaMalloc(&d_dl4, s_l4 * 4);
+    cudaMalloc(&d_du3, s_u3 * 4); cudaMalloc(&d_dl3, s_l3 * 4);
+    cudaMalloc(&d_dp2, s_p2 * 4); cudaMalloc(&d_dl2, s_l2 * 4);
+    cudaMalloc(&d_dp1, s_p1 * 4); cudaMalloc(&d_dl1, s_l1 * 4);
+    
     float* d_loss;
     cudaMalloc(&d_loss, 4);
     
@@ -176,7 +184,7 @@ int main() {
     }
      
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_fused_kernels: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_fused_kernels: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
         cudaFree(d_idx1); cudaFree(d_idx2);
     
     cudaFree(d_w1); cudaFree(d_b1); cudaFree(d_dw1); cudaFree(d_db1);

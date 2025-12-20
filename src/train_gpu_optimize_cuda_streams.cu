@@ -205,7 +205,7 @@ int main() {
      
     cudaStreamSynchronize(stream_compute);
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "train_gpu_optimize_cuda_streams: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+    std::cout << "⏱️  train_gpu_optimize_cuda_streams: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     cudaStreamDestroy(stream_compute);
     cudaStreamDestroy(stream_transfer);
