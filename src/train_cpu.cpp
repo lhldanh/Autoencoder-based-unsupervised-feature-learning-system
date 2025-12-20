@@ -33,17 +33,16 @@ void save_weights(const std::string& filename, const std::vector<float>& data) {
 int main() {
     // 1. CONFIG & DATA
     int BATCH = 32;
-    int EPOCHS = 50;
-    int MAX_IMAGES = 100; // Giới hạn số ảnh để chạy nhanh trên CPU
+    int EPOCHS = 5;
+    int MAX_IMAGES = 96; // Giới hạn số ảnh để chạy nhanh trên CPU
     float LR = 0.001f;
 
-    std::string data_path = "../data/cifar-10-batches-bin";
+    std::string data_path = "data/cifar-10-batches-bin";
     CIFAR10Dataset dataset(data_path);
     dataset.load_data();
     if (dataset.get_num_train() == 0) return 1;
 
     // 2. DEFINE ARCHITECTURE & MEMORY
-    std::cout << "Allocating memory...\n";
     // Layer 1: Conv 3->256
     std::vector<float> w1(256*3*3*3);      std::vector<float> dw1(w1.size());
     std::vector<float> b1(256, 0.0f);      std::vector<float> db1(256);
@@ -93,9 +92,9 @@ int main() {
     std::vector<float> d_input(input_batch.size()); 
 
     // 3. TRAINING LOOP
-    std::cout << "--- START FULL TRAINING (CPU) ---\n";
-    std::cout << "Architecture: 5 Layers (2 Encoder, 3 Decoder)\n";
+    std::cout << "--- START TRAINING (CPU) ---\n";
     std::cout << "Config: " << EPOCHS << " Epochs, ~" << MAX_IMAGES << " Images\n";
+    std::cout << "Batch Size: " << BATCH << ", Learning Rate: " << LR << "\n\n";
     
     auto start_total = std::chrono::high_resolution_clock::now();
     
@@ -192,11 +191,11 @@ int main() {
     std::cout << "\nTotal Training Time: " << elapsed_total.count() << " seconds\n";
 
     std::cout << "--- SAVING FULL MODEL ---\n";
-    save_weights("../weights/enc_w1.bin", w1); save_weights("../weights/enc_b1.bin", b1);
-    save_weights("../weights/enc_w2.bin", w2); save_weights("../weights/enc_b2.bin", b2);
-    save_weights("../weights/dec_w3.bin", w3); save_weights("../weights/dec_b3.bin", b3);
-    save_weights("../weights/dec_w4.bin", w4); save_weights("../weights/dec_b4.bin", b4);
-    save_weights("../weights/dec_w5.bin", w5); save_weights("../weights/dec_b5.bin", b5);
+    // save_weights("../weights/enc_w1.bin", w1); save_weights("../weights/enc_b1.bin", b1);
+    // save_weights("../weights/enc_w2.bin", w2); save_weights("../weights/enc_b2.bin", b2);
+    // save_weights("../weights/dec_w3.bin", w3); save_weights("../weights/dec_b3.bin", b3);
+    // save_weights("../weights/dec_w4.bin", w4); save_weights("../weights/dec_b4.bin", b4);
+    // save_weights("../weights/dec_w5.bin", w5); save_weights("../weights/dec_b5.bin", b5);
 
     return 0;
 }
