@@ -7,13 +7,11 @@
 int main() {
     const int B = 64, EPOCHS = 5;
     const int max_images = 96;
-    const float LR = 0.001f;
     
     CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
     if (dataset.get_num_train() == 0) return 1;
     
-    int s_in = B * 32 * 32 * 3;
     int col1_size = B * 32 * 32 * (3 * 9);
     int col2_size = B * 16 * 16 * (256 * 9);
     
