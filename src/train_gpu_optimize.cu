@@ -49,7 +49,7 @@ int main() {
     init_random(h_w3, 128 * 9 + 1, 128);
     init_random(h_w4, 128 * 9 + 1, 256);
     init_random(h_w5, 256 * 9 + 1, 3);
-    // Set bias (last col) to 0
+    // Set bias (last col) to 0 (commented out)
     // for (int i = 0; i < 256; ++i) h_w1[i * (3 * 9 + 1) + 3 * 9] = 0.0f;
     // for (int i = 0; i < 128; ++i) h_w2[i * (256 * 9 + 1) + 256 * 9] = 0.0f;
     // for (int i = 0; i < 128; ++i) h_w3[i * (128 * 9 + 1) + 128 * 9] = 0.0f;
@@ -153,61 +153,61 @@ int main() {
             
             // ========== FORWARD (Fused GEMM+Bias+ReLU) ========== 
             // Layer 1: Conv + ReLU + MaxPool
-            im2col_bias(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute); // custom: adds 1 for bias
-            gemm_nt_bias_merged(d_col1, d_w1, d_l1, B * 32 * 32, 3 * 9, 256, true, stream_compute, true);
+            // im2col_bias(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute); // custom: adds 1 for bias
+            // gemm_nt_bias_merged(d_col1, d_w1, d_l1, B * 32 * 32, 3 * 9, 256, true, stream_compute, true);
             maxpool_forward(d_l1, d_p1, d_idx1, B, 32, 32, 256, stream_compute);
             // Layer 2: Conv + ReLU + MaxPool
-            im2col_bias(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
-            gemm_nt_bias_merged(d_col2, d_w2, d_l2, B * 16 * 16, 256 * 9, 128, true, stream_compute, true);
+            // im2col_bias(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
+            // gemm_nt_bias_merged(d_col2, d_w2, d_l2, B * 16 * 16, 256 * 9, 128, true, stream_compute, true);
             maxpool_forward(d_l2, d_p2, d_idx2, B, 16, 16, 128, stream_compute);
             // Layer 3: Conv + ReLU + Upsample
-            im2col_bias(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
-            gemm_nt_bias_merged(d_col3, d_w3, d_l3, B * 8 * 8, 128 * 9, 128, true, stream_compute, true);
+            // im2col_bias(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
+            // gemm_nt_bias_merged(d_col3, d_w3, d_l3, B * 8 * 8, 128 * 9, 128, true, stream_compute, true);
             upsample_forward(d_l3, d_u3, B, 8, 8, 128, stream_compute);
             // Layer 4: Conv + ReLU + Upsample
-            im2col_bias(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
-            gemm_nt_bias_merged(d_col4, d_w4, d_l4, B * 16 * 16, 128 * 9, 256, true, stream_compute, true);
+            // im2col_bias(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
+            // gemm_nt_bias_merged(d_col4, d_w4, d_l4, B * 16 * 16, 128 * 9, 256, true, stream_compute, true);
             upsample_forward(d_l4, d_u4, B, 16, 16, 256, stream_compute);
             // Layer 5: Conv (no ReLU)
-            im2col_bias(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
-            gemm_nt_bias_merged(d_col5, d_w5, d_out, B * 32 * 32, 256 * 9, 3, false, stream_compute, true);
+            // im2col_bias(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
+            // gemm_nt_bias_merged(d_col5, d_w5, d_out, B * 32 * 32, 256 * 9, 3, false, stream_compute, true);
             
             // ========== FUSED LOSS + BACKWARD ==========
             mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
-            // ========== BACKWARD WITH FUSED KERNELS ==========
+            // ========== BACKWARD WITH FUSED KERNELS ========== 
             
             // Layer 5 backward (no ReLU - use standard kernels)
-            gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9, stream_compute);
-            col2im(d_dcol, d_du4, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
-            gemm_tn(d_dout, d_col5, d_dw5, 3, B * 32 * 32, 256 * 9, stream_compute);
-            bias_backward(d_dout, d_db5, B * 32 * 32, 3, stream_compute);
+            // gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9, stream_compute);
+            // col2im(d_dcol, d_du4, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
+            // gemm_tn(d_dout, d_col5, d_dw5, 3, B * 32 * 32, 256 * 9, stream_compute);
+            // bias_backward(d_dout, d_db5, B * 32 * 32, 3, stream_compute);
             
             // Layer 4 backward (FUSED: upsample + relu backward)
-            fused_upsample_relu_backward(d_du4, d_l4, d_dl4, B, 16, 16, 256, stream_compute);
-            gemm_nn(d_dl4, d_w4, d_dcol, B * 16 * 16, 256, 128 * 9, stream_compute);
-            col2im(d_dcol, d_du3, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
-            gemm_tn(d_dl4, d_col4, d_dw4, 256, B * 16 * 16, 128 * 9, stream_compute);
-            bias_backward(d_dl4, d_db4, B * 16 * 16, 256, stream_compute);
+            // fused_upsample_relu_backward(d_du4, d_l4, d_dl4, B, 16, 16, 256, stream_compute);
+            // gemm_nn(d_dl4, d_w4, d_dcol, B * 16 * 16, 256, 128 * 9, stream_compute);
+            // col2im(d_dcol, d_du3, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
+            // gemm_tn(d_dl4, d_col4, d_dw4, 256, B * 16 * 16, 128 * 9, stream_compute);
+            // bias_backward(d_dl4, d_db4, B * 16 * 16, 256, stream_compute);
             
             // Layer 3 backward (FUSED: upsample + relu backward)
-            fused_upsample_relu_backward(d_du3, d_l3, d_dl3, B, 8, 8, 128, stream_compute);
-            gemm_nn(d_dl3, d_w3, d_dcol, B * 8 * 8, 128, 128 * 9, stream_compute);
-            col2im(d_dcol, d_dp2, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
-            gemm_tn(d_dl3, d_col3, d_dw3, 128, B * 8 * 8, 128 * 9, stream_compute);
-            bias_backward(d_dl3, d_db3, B * 8 * 8, 128, stream_compute);
+            // fused_upsample_relu_backward(d_du3, d_l3, d_dl3, B, 8, 8, 128, stream_compute);
+            // gemm_nn(d_dl3, d_w3, d_dcol, B * 8 * 8, 128, 128 * 9, stream_compute);
+            // col2im(d_dcol, d_dp2, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
+            // gemm_tn(d_dl3, d_col3, d_dw3, 128, B * 8 * 8, 128 * 9, stream_compute);
+            // bias_backward(d_dl3, d_db3, B * 8 * 8, 128, stream_compute);
             
             // Layer 2 backward (FUSED: zero + maxpool + relu backward)
-            fused_maxpool_relu_backward(d_dp2, d_idx2, d_l2, d_dl2, s_p2, s_l2, stream_compute);
-            gemm_nn(d_dl2, d_w2, d_dcol, B * 16 * 16, 128, 256 * 9, stream_compute);
-            col2im(d_dcol, d_dp1, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
-            gemm_tn(d_dl2, d_col2, d_dw2, 128, B * 16 * 16, 256 * 9, stream_compute);
-            bias_backward(d_dl2, d_db2, B * 16 * 16, 128, stream_compute);
+            // fused_maxpool_relu_backward(d_dp2, d_idx2, d_l2, d_dl2, s_p2, s_l2, stream_compute);
+            // gemm_nn(d_dl2, d_w2, d_dcol, B * 16 * 16, 128, 256 * 9, stream_compute);
+            // col2im(d_dcol, d_dp1, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
+            // gemm_tn(d_dl2, d_col2, d_dw2, 128, B * 16 * 16, 256 * 9, stream_compute);
+            // bias_backward(d_dl2, d_db2, B * 16 * 16, 128, stream_compute);
             
             // Layer 1 backward (FUSED: zero + maxpool + relu backward)
-            fused_maxpool_relu_backward(d_dp1, d_idx1, d_l1, d_dl1, s_p1, s_l1, stream_compute);
-            gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9, stream_compute);
-            bias_backward(d_dl1, d_db1, B * 32 * 32, 256, stream_compute);
+            // fused_maxpool_relu_backward(d_dp1, d_idx1, d_l1, d_dl1, s_p1, s_l1, stream_compute);
+            // gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9, stream_compute);
+            // bias_backward(d_dl1, d_db1, B * 32 * 32, 256, stream_compute);
             
             // ========== SGD UPDATE (Vectorized) ========== 
             sgd_update_vectorized(d_w1, d_dw1, h_w1.size(), LR, stream_compute);
