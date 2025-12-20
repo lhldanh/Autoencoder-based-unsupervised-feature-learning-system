@@ -109,30 +109,24 @@ int main() {
             checkCudaErrors(cudaMemcpy(d_input, dataset.get_train_images_ptr() + offset, 
                         s_in * sizeof(float), cudaMemcpyHostToDevice));
 
-            // FORWARD using im2col + GEMM
-            // Layer 1: input -> l1
-            im2col(d_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, 0);
-            gemm_nt_relu(d_col1, d_w1, d_l1, B*32*32, 3*9, 256, true, 0);
+            // FORWARD (using baseline conv kernels with im2col infrastructure)
+            conv2d_kernel<<<get_1d_dims(s_l1), 256>>>(d_input, d_w1, d_b1, d_l1, p1);
+            relu_kernel<<<get_1d_dims(s_l1), 256>>>(d_l1, s_l1);
             maxpool_kernel<<<get_1d_dims(s_p1), 256>>>(d_l1, d_p1, B, 32, 32, 256);
 
-            // Layer 2: p1 -> l2
-            im2col(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, 0);
-            gemm_nt_relu(d_col2, d_w2, d_l2, B*16*16, 256*9, 128, true, 0);
+            conv2d_kernel<<<get_1d_dims(s_l2), 256>>>(d_p1, d_w2, d_b2, d_l2, p2);
+            relu_kernel<<<get_1d_dims(s_l2), 256>>>(d_l2, s_l2);
             maxpool_kernel<<<get_1d_dims(s_p2), 256>>>(d_l2, d_p2, B, 16, 16, 128);
             
-            // Layer 3: p2 -> l3
-            im2col(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, 0);
-            gemm_nt_relu(d_col3, d_w3, d_l3, B*8*8, 128*9, 128, true, 0);
+            conv2d_kernel<<<get_1d_dims(s_l3), 256>>>(d_p2, d_w3, d_b3, d_l3, p3);
+            relu_kernel<<<get_1d_dims(s_l3), 256>>>(d_l3, s_l3);
             upsample_kernel<<<get_1d_dims(s_u3), 256>>>(d_l3, d_u3, B, 8, 8, 128);
 
-            // Layer 4: u3 -> l4
-            im2col(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, 0);
-            gemm_nt_relu(d_col4, d_w4, d_l4, B*16*16, 128*9, 256, true, 0);
+            conv2d_kernel<<<get_1d_dims(s_l4), 256>>>(d_u3, d_w4, d_b4, d_l4, p4);
+            relu_kernel<<<get_1d_dims(s_l4), 256>>>(d_l4, s_l4);
             upsample_kernel<<<get_1d_dims(s_u4), 256>>>(d_l4, d_u4, B, 16, 16, 256);
 
-            // Layer 5: u4 -> out
-            im2col(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, 0);
-            gemm_nt_relu(d_col5, d_w5, d_out, B*32*32, 256*9, 3, false, 0);
+            conv2d_kernel<<<get_1d_dims(s_in), 256>>>(d_u4, d_w5, d_b5, d_out, p5);
             checkCudaErrors(cudaGetLastError());
 
             // BACKWARD
