@@ -183,6 +183,8 @@ int main() {
             mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
             // ========== BACKWARD WITH FUSED KERNELS ==========
+            // Note: We can reuse col buffers from forward pass to save memory
+            // since backward uses them in reverse order
             
             // Layer 5 backward (no ReLU - use standard kernels)
             gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9 + 1, stream_compute);
