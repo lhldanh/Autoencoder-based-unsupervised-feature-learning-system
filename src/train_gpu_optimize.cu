@@ -232,7 +232,7 @@ int main() {
         // Print sample weights
         cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
         cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * 4, cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_b1.data(), d_b1, h_b1.size() * 4, cudaMemcpyDeviceToHost);
+        // cudaMemcpy(h_b1.data(), d_b1, h_b1.size() * 4, cudaMemcpyDeviceToHost);
 
         std::cout << "  W1[0:5]: ";
         for (int i = 0; i < 5 && i < (int)h_w1.size(); ++i) {
@@ -246,11 +246,11 @@ int main() {
         }
         std::cout << "\n";
         
-        std::cout << "  B1[0:5]: ";
-        for (int i = 0; i < 5 && i < (int)h_b1.size(); ++i) {
-            std::cout << std::fixed << std::setprecision(4) << h_b1[i] << " ";
-        }
-        std::cout << "\n";
+        // std::cout << "  B1[0:5]: ";
+        // for (int i = 0; i < 5 && i < (int)h_b1.size(); ++i) {
+        //     std::cout << std::fixed << std::setprecision(4) << h_b1[i] << " ";
+        // }
+        // std::cout << "\n";
         
         // Print weight statistics
         float w1_min = h_w1[0], w1_max = h_w1[0], w1_sum = 0;
