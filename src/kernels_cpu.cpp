@@ -1,4 +1,5 @@
-#include "kernel.h"
+// #include "kernel.h"
+#include "kernel_cpu.h"
 #include <cstring> // Cho memset
 #include <algorithm> // Cho std::max
 #include <cmath>     // Cho isinf, etc.
