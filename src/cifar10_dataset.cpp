@@ -28,9 +28,9 @@ void CIFAR10Dataset::read_batch(const std::string& filename, std::vector<float>&
 
         // 2. Xử lý Image (3072 bytes tiếp theo)
         // CIFAR-10 binary format: [Label] [1024 Red] [1024 Green] [1024 Blue]
-        // Chuẩn hóa từ [0, 255] sang [0.0f, 1.0f] [cite: 140, 240]
+        // Keep raw values [0, 255] - normalization done in load_data()
         for (int i = 0; i < IMG_SIZE; ++i) {
-            images.push_back(static_cast<float>(buffer[i + 1]) / 255.0f);
+            images.push_back(static_cast<float>(buffer[i + 1]));
         }
     }
     std::cout << "Loaded batch: " << filename << " | Current Total: " << labels.size() << std::endl;
@@ -51,4 +51,21 @@ void CIFAR10Dataset::load_data() {
 
     std::cout << "Successfully loaded " << get_num_train() << " train images and " 
               << get_num_test() << " test images." << std::endl;
+
+    // Apply Min-Max normalization: [0, 255] -> [0, 1]
+    std::cout << "Applying Min-Max normalization [0, 255] -> [0, 1]..." << std::endl;
+    
+    const float min_val = 0.0f;
+    const float max_val = 255.0f;
+    const float range = max_val - min_val;
+    
+    for (size_t i = 0; i < train_images.size(); ++i) {
+        train_images[i] = (train_images[i] - min_val) / range;
+    }
+    
+    for (size_t i = 0; i < test_images.size(); ++i) {
+        test_images[i] = (test_images[i] - min_val) / range;
+    }
+    
+    std::cout << "Normalization complete." << std::endl;
 }
