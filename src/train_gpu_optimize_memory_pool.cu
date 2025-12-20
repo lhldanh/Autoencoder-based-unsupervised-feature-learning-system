@@ -63,13 +63,34 @@ int main() {
     d_w4 = pool.alloc(h_w4.size() * 4); d_b4 = pool.alloc(256 * 4);
     d_w5 = pool.alloc(h_w5.size() * 4); d_b5 = pool.alloc(3 * 4);
     
-    float *d_input;
-    d_input = pool.alloc(s_in * 4);
+    // Gradient buffers
+    float *d_dw1, *d_db1, *d_dw2, *d_db2, *d_dw3, *d_db3, *d_dw4, *d_db4, *d_dw5, *d_db5;
+    d_dw1 = pool.alloc(h_w1.size() * 4); d_db1 = pool.alloc(256 * 4);
+    d_dw2 = pool.alloc(h_w2.size() * 4); d_db2 = pool.alloc(128 * 4);
+    d_dw3 = pool.alloc(h_w3.size() * 4); d_db3 = pool.alloc(128 * 4);
+    d_dw4 = pool.alloc(h_w4.size() * 4); d_db4 = pool.alloc(256 * 4);
+    d_dw5 = pool.alloc(h_w5.size() * 4); d_db5 = pool.alloc(3 * 4);
     
-    int *d_idx1 = (int*)pool.alloc(s_p1 * 4);
-    int *d_idx2 = (int*)pool.alloc(s_p2 * 4);
+    // Layer buffers
+    int s_l1 = B * 32 * 32 * 256, s_p1 = B * 16 * 16 * 256;
+    int s_l2 = B * 16 * 16 * 128, s_p2 = B * 8 * 8 * 128;
+    int s_l3 = B * 8 * 8 * 128, s_u3 = B * 16 * 16 * 128;
+    int s_l4 = B * 16 * 16 * 256, s_u4 = B * 32 * 32 * 256;
     
-    float* d_loss = pool.alloc(4);
+    float *d_input = pool.alloc(s_in * 4);
+    float *d_l1 = pool.alloc(s_l1 * 4), *d_p1 = pool.alloc(s_p1 * 4);
+    float *d_l2 = pool.alloc(s_l2 * 4), *d_p2 = pool.alloc(s_p2 * 4);
+    float *d_l3 = pool.alloc(s_l3 * 4), *d_u3 = pool.alloc(s_u3 * 4);
+    float *d_l4 = pool.alloc(s_l4 * 4), *d_u4 = pool.alloc(s_u4 * 4);
+    float *d_out = pool.alloc(s_in * 4);
+    
+    // Backward buffers
+    float *d_dl1 = pool.alloc(s_l1 * 4), *d_dp1 = pool.alloc(s_p1 * 4);
+    float *d_dl2 = pool.alloc(s_l2 * 4), *d_dp2 = pool.alloc(s_p2 * 4);
+    float *d_dl3 = pool.alloc(s_l3 * 4), *d_du3 = pool.alloc(s_u3 * 4);
+    float *d_dl4 = pool.alloc(s_l4 * 4), *d_du4 = pool.alloc(s_u4 * 4);
+    float *d_dout = pool.alloc(s_in * 4);
+    
     
     cudaMemcpy(d_w1, h_w1.data(), h_w1.size() * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b1, h_b1.data(), 256 * 4, cudaMemcpyHostToDevice);
@@ -81,19 +102,107 @@ int main() {
     cudaMemcpy(d_b4, h_b4.data(), 256 * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_w5, h_w5.data(), h_w5.size() * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b5, h_b5.data(), 3 * 4, cudaMemcpyHostToDevice);
+        ConvParam_G p1 = {B, 32, 32, 3,  32, 32, 256, 3, 1, 1};
+        ConvParam_G p2 = {B, 16, 16, 256, 16, 16, 128, 3, 1, 1};
+        ConvParam_G p3 = {B, 8, 8, 128,  8, 8, 128,  3, 1, 1};
+        ConvParam_G p4 = {B, 16, 16, 128, 16, 16, 256, 3, 1, 1};
+        ConvParam_G p5 = {B, 32, 32, 256, 32, 32, 3,  3, 1, 1};
+        float LR = 0.001f;
+    
     
     int num_batches = max_images / B;
     auto t_start = std::chrono::high_resolution_clock::now();
     
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
-        for (int batch = 0; batch < num_batches; ++batch) {
-            float* curr_input = d_input;
+        for (int b = 0; b < num_batches; ++b) {
+            size_t offset = (size_t)b * s_in;
+            checkCudaErrors(cudaMemcpy(d_input, dataset.get_train_images_ptr() + offset, 
+                        s_in * sizeof(float), cudaMemcpyHostToDevice));
+
+            // FORWARD
+            conv2d_kernel<<<get_1d_dims(s_l1), 256>>>(d_input, d_w1, d_b1, d_l1, p1);
+            relu_kernel<<<get_1d_dims(s_l1), 256>>>(d_l1, s_l1);
+            maxpool_kernel<<<get_1d_dims(s_p1), 256>>>(d_l1, d_p1, B, 32, 32, 256);
+
+            conv2d_kernel<<<get_1d_dims(s_l2), 256>>>(d_p1, d_w2, d_b2, d_l2, p2);
+            relu_kernel<<<get_1d_dims(s_l2), 256>>>(d_l2, s_l2);
+            maxpool_kernel<<<get_1d_dims(s_p2), 256>>>(d_l2, d_p2, B, 16, 16, 128);
             
-            // Copy input
-            cudaMemcpy(curr_input, dataset.get_train_images_ptr() + batch * s_in, s_in * 4, cudaMemcpyHostToDevice);
+            conv2d_kernel<<<get_1d_dims(s_l3), 256>>>(d_p2, d_w3, d_b3, d_l3, p3);
+            relu_kernel<<<get_1d_dims(s_l3), 256>>>(d_l3, s_l3);
+            upsample_kernel<<<get_1d_dims(s_u3), 256>>>(d_l3, d_u3, B, 8, 8, 128);
+
+            conv2d_kernel<<<get_1d_dims(s_l4), 256>>>(d_u3, d_w4, d_b4, d_l4, p4);
+            relu_kernel<<<get_1d_dims(s_l4), 256>>>(d_l4, s_l4);
+            upsample_kernel<<<get_1d_dims(s_u4), 256>>>(d_l4, d_u4, B, 16, 16, 256);
+
+            conv2d_kernel<<<get_1d_dims(s_in), 256>>>(d_u4, d_w5, d_b5, d_out, p5);
+            checkCudaErrors(cudaGetLastError());
+
+            // BACKWARD
+            mse_backward_kernel<<<get_1d_dims(s_in), 256>>>(d_out, d_input, d_dout, s_in);
+
+            fill_zeros<<<get_1d_dims(h_w5.size()), 256>>>(d_dw5, h_w5.size());
+            fill_zeros<<<get_1d_dims(3), 256>>>(d_db5, 3);
+            fill_zeros<<<get_1d_dims(s_u4), 256>>>(d_du4, s_u4);
+            conv2d_backward_input_kernel<<<get_1d_dims(s_u4), 256>>>(d_dout, d_w5, d_du4, p5);
+            conv2d_backward_weight_kernel<<<get_1d_dims(h_w5.size()), 256>>>(d_dout, d_u4, d_dw5, p5);
+            conv2d_backward_bias_kernel<<<get_1d_dims(3), 256>>>(d_dout, d_db5, p5);
             
-            // Basic forward pass (simplified - using kernel.h functions)
-            // Note: This would need appropriate im2col, conv, pooling, upsampling kernels
+            fill_zeros<<<get_1d_dims(s_l4), 256>>>(d_dl4, s_l4);
+            upsample_backward_kernel<<<get_1d_dims(s_u4), 256>>>(d_du4, d_dl4, B, 16, 16, 256);
+            relu_backward_kernel<<<get_1d_dims(s_l4), 256>>>(d_dl4, d_l4, d_dl4, s_l4);
+
+            fill_zeros<<<get_1d_dims(h_w4.size()), 256>>>(d_dw4, h_w4.size());
+            fill_zeros<<<get_1d_dims(256), 256>>>(d_db4, 256);
+            fill_zeros<<<get_1d_dims(s_u3), 256>>>(d_du3, s_u3);
+            conv2d_backward_input_kernel<<<get_1d_dims(s_u3), 256>>>(d_dl4, d_w4, d_du3, p4);
+            conv2d_backward_weight_kernel<<<get_1d_dims(h_w4.size()), 256>>>(d_dl4, d_u3, d_dw4, p4);
+            conv2d_backward_bias_kernel<<<get_1d_dims(256), 256>>>(d_dl4, d_db4, p4);
+
+            fill_zeros<<<get_1d_dims(s_l3), 256>>>(d_dl3, s_l3);
+            upsample_backward_kernel<<<get_1d_dims(s_u3), 256>>>(d_du3, d_dl3, B, 8, 8, 128);
+            relu_backward_kernel<<<get_1d_dims(s_l3), 256>>>(d_dl3, d_l3, d_dl3, s_l3);
+
+            fill_zeros<<<get_1d_dims(h_w3.size()), 256>>>(d_dw3, h_w3.size());
+            fill_zeros<<<get_1d_dims(128), 256>>>(d_db3, 128);
+            fill_zeros<<<get_1d_dims(s_p2), 256>>>(d_dp2, s_p2);
+            conv2d_backward_input_kernel<<<get_1d_dims(s_p2), 256>>>(d_dl3, d_w3, d_dp2, p3);
+            conv2d_backward_weight_kernel<<<get_1d_dims(h_w3.size()), 256>>>(d_dl3, d_p2, d_dw3, p3);
+            conv2d_backward_bias_kernel<<<get_1d_dims(128), 256>>>(d_dl3, d_db3, p3);
+                  
+            fill_zeros<<<get_1d_dims(s_l2), 256>>>(d_dl2, s_l2);
+            maxpool_backward_kernel<<<get_1d_dims(s_p2), 256>>>(d_dp2, d_l2, d_dl2, B, 16, 16, 128);
+            relu_backward_kernel<<<get_1d_dims(s_l2), 256>>>(d_dl2, d_l2, d_dl2, s_l2);
+
+            fill_zeros<<<get_1d_dims(h_w2.size()), 256>>>(d_dw2, h_w2.size());
+            fill_zeros<<<get_1d_dims(128), 256>>>(d_db2, 128);
+            fill_zeros<<<get_1d_dims(s_p1), 256>>>(d_dp1, s_p1);
+            conv2d_backward_input_kernel<<<get_1d_dims(s_p1), 256>>>(d_dl2, d_w2, d_dp1, p2);
+            conv2d_backward_weight_kernel<<<get_1d_dims(h_w2.size()), 256>>>(d_dl2, d_p1, d_dw2, p2);
+            conv2d_backward_bias_kernel<<<get_1d_dims(128), 256>>>(d_dl2, d_db2, p2);
+
+            fill_zeros<<<get_1d_dims(s_l1), 256>>>(d_dl1, s_l1);
+            maxpool_backward_kernel<<<get_1d_dims(s_p1), 256>>>(d_dp1, d_l1, d_dl1, B, 32, 32, 256);
+            relu_backward_kernel<<<get_1d_dims(s_l1), 256>>>(d_dl1, d_l1, d_dl1, s_l1);
+
+            fill_zeros<<<get_1d_dims(h_w1.size()), 256>>>(d_dw1, h_w1.size());
+            fill_zeros<<<get_1d_dims(256), 256>>>(d_db1, 256);
+            conv2d_backward_weight_kernel<<<get_1d_dims(h_w1.size()), 256>>>(d_dl1, d_input, d_dw1, p1);
+            conv2d_backward_bias_kernel<<<get_1d_dims(256), 256>>>(d_dl1, d_db1, p1);
+
+            // UPDATE
+            update_weights_kernel<<<get_1d_dims(h_w1.size()), 256>>>(d_w1, d_dw1, h_w1.size(), LR);
+            update_weights_kernel<<<get_1d_dims(256), 256>>>(d_b1, d_db1, 256, LR);
+            update_weights_kernel<<<get_1d_dims(h_w2.size()), 256>>>(d_w2, d_dw2, h_w2.size(), LR);
+            update_weights_kernel<<<get_1d_dims(128), 256>>>(d_b2, d_db2, 128, LR);
+            update_weights_kernel<<<get_1d_dims(h_w3.size()), 256>>>(d_w3, d_dw3, h_w3.size(), LR);
+            update_weights_kernel<<<get_1d_dims(128), 256>>>(d_b3, d_db3, 128, LR);
+            update_weights_kernel<<<get_1d_dims(h_w4.size()), 256>>>(d_w4, d_dw4, h_w4.size(), LR);
+            update_weights_kernel<<<get_1d_dims(256), 256>>>(d_b4, d_db4, 256, LR);
+            update_weights_kernel<<<get_1d_dims(h_w5.size()), 256>>>(d_w5, d_dw5, h_w5.size(), LR);
+            update_weights_kernel<<<get_1d_dims(3), 256>>>(d_b5, d_db5, 3, LR);
+            checkCudaErrors(cudaGetLastError());
         }
     }
      
