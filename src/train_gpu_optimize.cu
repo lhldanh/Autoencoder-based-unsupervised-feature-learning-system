@@ -244,7 +244,37 @@ int main() {
                   << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
                   << " | Time: " << std::setprecision(2) << ep_time << "s"
                   << " | " << std::setprecision(0) << (num_batches * B) / ep_time << " img/s\n";
+        // Print sample weights
+        std::cout << "  W1[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_w1.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_w1[i] << " ";
+        }
+        std::cout << "\n";
+        
+        std::cout << "  W5[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_w5.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_w5[i] << " ";
+        }
+        std::cout << "\n";
+        
+        std::cout << "  B1[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_b1.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_b1[i] << " ";
+        }
+        std::cout << "\n";
+        
+        // Print weight statistics
+        float w1_min = h_w1[0], w1_max = h_w1[0], w1_sum = 0;
+        for (size_t i = 0; i < h_w1.size(); ++i) {
+            if (h_w1[i] < w1_min) w1_min = h_w1[i];
+            if (h_w1[i] > w1_max) w1_max = h_w1[i];
+            w1_sum += h_w1[i];
+        }
+        std::cout << "  W1 stats: min=" << std::setprecision(4) << w1_min 
+                  << " max=" << w1_max 
+                  << " mean=" << w1_sum / h_w1.size() << "\n\n";
     }
+     
     
     auto t_end = std::chrono::high_resolution_clock::now();
     std::cout << "\nTotal: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
