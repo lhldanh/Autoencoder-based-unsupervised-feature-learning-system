@@ -47,6 +47,11 @@ int main() {
     init_random(h_w1, 27, 256); init_random(h_w2, 2304, 128);
     init_random(h_w3, 1152, 128); init_random(h_w4, 1152, 256);
     init_random(h_w5, 2304, 3);
+    init_random(h_b1, 27, 256);
+    init_random(h_b2, 2304, 128);
+    init_random(h_b3, 1152, 128);
+    init_random(h_b4, 1152, 256);
+    init_random(h_b5, 2304, 3);
     
     // Device memory - weights
     float *d_w1, *d_b1, *d_dw1, *d_db1;
