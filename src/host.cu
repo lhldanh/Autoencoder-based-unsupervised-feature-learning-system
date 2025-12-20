@@ -1,4 +1,4 @@
-#include "kernels.h"
+#include "host.h"
 #include <algorithm> // Cho std::fill
 
 // Helper nội bộ (không cần export ra header)

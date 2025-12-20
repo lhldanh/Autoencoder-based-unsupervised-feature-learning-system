@@ -10,7 +10,7 @@
 │   ├── kernels_cpu.cpp     # CPU Math kernels (Conv, ReLU, Pool...)
 │   └── cifar10_dataset.cpp # Data loader implementation
 ├── include/                # Header files
-│   ├── kernels.h           # Function declarations
+│   ├── host.h           # Function declarations
 │   └── cifar10_dataset.h   # Data loader header
 ├── data/                   # Dataset directory
 │   └── cifar-10-batches-bin/  # Extracted CIFAR-10 binary files

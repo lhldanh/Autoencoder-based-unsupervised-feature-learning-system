@@ -6,8 +6,8 @@
 #include "optimize_kernel.h"
 
 int main() {
-    const int B = 64, EPOCHS = 40;
-    const float LR = 0.01f;
+    const int B = 64, EPOCHS = 20;
+    const float LR = 0.001f;
     
     std::cout << "=== CUDA Autoencoder (Fused Backward Kernels) ===\n\n";
     

@@ -5,7 +5,7 @@
 #include <fstream>
 #include <chrono> // Thư viện đo thời gian
 #include "cifar10_dataset.h"
-#include "kernels.h" // Header chứa tên hàm chung (không có _cpu)
+#include "host.h" // Header chứa tên hàm chung (không có _cpu)
 
 // Hàm khởi tạo Xavier
 void init_random(std::vector<float>& vec, int fan_in, int fan_out) {
