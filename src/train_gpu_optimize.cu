@@ -1,4 +1,3 @@
-// %%writefile src/train_gpu_optimize.cu
 #include <iostream>
 #include <vector>
 #include <random>
@@ -754,14 +753,14 @@ __global__ void bias_backward_kernel(const float* d_out, float* d_bias, int B_HW
     if (tid == 0) d_bias[oc] = shared_sum[0];
 }
 
-
-// ============== HELPERS ==============
 void init_random(std::vector<float>& v, int fan_in, int fan_out) {
-    std::mt19937 gen(42);
-    float lim = sqrt(6.0f / (fan_in + fan_out));
-    std::uniform_real_distribution<float> d(-lim, lim);
-    for (auto& x : v) x = d(gen);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    float std_dev = std::sqrt(2.0f / (fan_in + fan_out));
+    std::normal_distribution<float> dist(0.0f, std_dev);
+    for (auto& x : v) x = dist(gen);
 }
+
 
 void save_weights(const std::string& f, const std::vector<float>& d) {
     std::ofstream file(f, std::ios::binary);
@@ -773,15 +772,9 @@ void save_weights(const std::string& f, const std::vector<float>& d) {
 // ...existing code (all kernels and helper functions)...
 
 int main() {
-    // --- UPDATED CONFIGURATION ---
-    const int BATCH_SIZE = 32;   // Batch size
-    const int MAX_IMAGES = 96;   // Max images to process
-    const int EPOCHS = 5;
-    const float LR = 0.001f;
+    const int B = 64, EPOCHS = 40;
+    const float LR = 0.01f;
     
-    // Alias B for compatibility with existing code
-    const int B = BATCH_SIZE;
-
     std::cout << "=== CUDA Autoencoder (Fused Backward Kernels) ===\n\n";
     
     cudaDeviceProp prop;
@@ -789,23 +782,10 @@ int main() {
     std::cout << "GPU: " << prop.name << "\n";
     std::cout << "SMs: " << prop.multiProcessorCount << "\n\n";
     
-    CIFAR10Dataset dataset("data/cifar-10-batches-bin");
+    CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
-    int total_loaded = dataset.get_num_train();
-    if (total_loaded == 0) { std::cerr << "No data!\n"; return 1; }
-    
-    // --- Determine training count and batches ---
-    int num_train_images = total_loaded;
-    if (MAX_IMAGES > 0 && MAX_IMAGES < total_loaded) {
-        num_train_images = MAX_IMAGES;
-    }
-    
-    int num_batches = num_train_images / B;
-
-    std::cout << "Images loaded: " << total_loaded << "\n";
-    std::cout << "Training on: " << num_train_images << " images\n";
-    std::cout << "Batch Size: " << B << "\n";
-    std::cout << "Batches per epoch: " << num_batches << "\n\n";
+    if (dataset.get_num_train() == 0) { std::cerr << "No data!\n"; return 1; }
+    std::cout << "Images: " << dataset.get_num_train() << "\n\n";
     
     MemoryPool pool;
     
@@ -906,6 +886,7 @@ int main() {
     cudaMemcpy(d_w5, h_w5.data(), h_w5.size() * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b5, h_b5.data(), 3 * 4, cudaMemcpyHostToDevice);
     
+    int num_batches = dataset.get_num_train() / B;
     std::cout << "Training: " << EPOCHS << " epochs, " << num_batches << " batches\n\n";
     
     // Create streams
@@ -1039,7 +1020,18 @@ int main() {
         
         auto ep_end = std::chrono::high_resolution_clock::now();
         double ep_time = std::chrono::duration<double>(ep_end - ep_start).count();
+
+        // Print example weights from h_w1 after each epoch
+        std::cout << "Epoch " << epoch + 1 << ": Example weights from h_w1: ";
+        cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
         
+        // Print example weights from h_w1 after each epoch
+        std::cout << "Epoch " << epoch + 1 << ": Example weights from d_w1: ";
+        for (size_t i = 0; i < std::min((size_t)10, h_w1.size()); ++i) {
+            std::cout << std::fixed << std::setprecision(6) << h_w1[i] << " ";
+        }
+        std::cout << std::endl;
+
         std::cout << "Epoch " << (epoch + 1) << "/" << EPOCHS
                   << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
                   << " | Time: " << std::setprecision(2) << ep_time << "s"
@@ -1061,16 +1053,16 @@ int main() {
     cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * 4, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_b5.data(), d_b5, 3 * 4, cudaMemcpyDeviceToHost);
     
-    // system("mkdir -p ../weights");
-    // save_weights("../weights/enc_w1.bin", h_w1); save_weights("../weights/enc_b1.bin", h_b1);
-    // save_weights("../weights/enc_w2.bin", h_w2); save_weights("../weights/enc_b2.bin", h_b2);
-    // save_weights("../weights/dec_w3.bin", h_w3); save_weights("../weights/dec_b3.bin", h_b3);
-    // save_weights("../weights/dec_w4.bin", h_w4); save_weights("../weights/dec_b4.bin", h_b4);
-    // save_weights("../weights/dec_w5.bin", h_w5); save_weights("../weights/dec_b5.bin", h_b5);
+    system("mkdir -p ../weights");
+    save_weights("../weights/enc_w1.bin", h_w1); save_weights("../weights/enc_b1.bin", h_b1);
+    save_weights("../weights/enc_w2.bin", h_w2); save_weights("../weights/enc_b2.bin", h_b2);
+    save_weights("../weights/dec_w3.bin", h_w3); save_weights("../weights/dec_b3.bin", h_b3);
+    save_weights("../weights/dec_w4.bin", h_w4); save_weights("../weights/dec_b4.bin", h_b4);
+    save_weights("../weights/dec_w5.bin", h_w5); save_weights("../weights/dec_b5.bin", h_b5);
     
     cudaFreeHost(h_pinned_input);
     cudaStreamDestroy(stream_compute);
     cudaStreamDestroy(stream_transfer);
-    // std::cout << "Saved weights.\n";
+    std::cout << "Saved weights.\n";
     return 0;
 }
