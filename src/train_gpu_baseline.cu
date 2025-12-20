@@ -14,8 +14,8 @@
 
 int main() {
   int BATCH = 64;
-  int EPOCHS = 5;
-  int MAX_IMAGES = 96;
+  int EPOCHS = 1;
+  int MAX_IMAGES = 50000;
   float LR = 0.001f;
 
   std::string data_path = "../data/cifar-10-batches-bin";
