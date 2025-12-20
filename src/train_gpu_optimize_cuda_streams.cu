@@ -85,7 +85,6 @@ int main() {
     
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         for (int batch = 0; batch < num_batches; ++batch) {
-            int curr_buf = batch % 2;
             int next_buf = (batch + 1) % 2;
             
             // Asynchronously transfer next batch while computing current batch

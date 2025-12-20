@@ -91,8 +91,6 @@ int main() {
     
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         for (int batch = 0; batch < num_batches; ++batch) {
-            int curr_buf = batch % 2;
-            
             // Simplified forward/backward pass
         }
     }
