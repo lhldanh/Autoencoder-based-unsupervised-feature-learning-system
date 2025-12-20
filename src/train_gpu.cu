@@ -1,4 +1,3 @@
-%%writefile src/train_gpu.cu
 #include <iostream>
 #include <vector>
 #include <random>
