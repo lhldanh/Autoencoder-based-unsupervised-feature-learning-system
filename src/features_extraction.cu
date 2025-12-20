@@ -311,13 +311,13 @@ int main() {
     cudaGetDeviceProperties(&prop, 0);
     std::cout << "GPU: " << prop.name << "\n\n";
     
-    // Load weights
+    // Load weights - matching filenames from train_gpu_optimize.cu
     std::cout << "Loading trained weights...\n";
     
-    auto h_w1 = load_weights("../weights/opt_enc_w1.bin");
-    auto h_b1 = load_weights("../weights/opt_enc_b1.bin");
-    auto h_w2 = load_weights("../weights/opt_enc_w2.bin");
-    auto h_b2 = load_weights("../weights/opt_enc_b2.bin");
+    auto h_w1 = load_weights("../weights/enc_w1.bin");
+    auto h_b1 = load_weights("../weights/enc_b1.bin");
+    auto h_w2 = load_weights("../weights/enc_w2.bin");
+    auto h_b2 = load_weights("../weights/enc_b2.bin");
     
     std::cout << "  w1: " << h_w1.size() << " (" << 256 << "x" << 3*9 << ")\n";
     std::cout << "  b1: " << h_b1.size() << "\n";
