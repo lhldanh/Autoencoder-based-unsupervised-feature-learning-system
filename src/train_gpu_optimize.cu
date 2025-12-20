@@ -1,775 +1,9 @@
 #include <iostream>
 #include <vector>
-#include <random>
-#include <algorithm>
-#include <fstream>
 #include <chrono>
-#include <cmath>
 #include <iomanip>
 #include "cifar10_dataset.h"
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-
-#define BLOCK_SIZE 256
-#define TILE_SIZE 32
-#define GRID(n) ((n + BLOCK_SIZE - 1) / BLOCK_SIZE)
-
-// Optimized GEMM tile sizes
-#define TILE_M 64
-#define TILE_N 64
-#define TILE_K 16
-#define THREAD_M 4
-#define THREAD_N 4
-
-#define CUDA_CHECK(call) do { \
-    cudaError_t err = call; \
-    if (err != cudaSuccess) { \
-        std::cerr << "CUDA Error: " << cudaGetErrorString(err) \
-                  << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        exit(err); \
-    } \
-} while(0)
-
-// ============== MEMORY POOL ==============
-class MemoryPool {
-    std::vector<std::pair<float*, size_t>> buffers;
-    size_t total = 0;
-public:
-    float* alloc(size_t bytes) {
-        float* p; cudaMalloc(&p, bytes);
-        buffers.push_back({p, bytes});
-        total += bytes;
-        return p;
-    }
-    size_t get_total() const { return total; }
-    ~MemoryPool() { for (auto& b : buffers) cudaFree(b.first); }
-};
-
-// ============== FUSED GEMM + BIAS + RELU KERNELS (FORWARD) ==============
-
-// C[M,N] = ReLU(A[M,K] * B^T[N,K] + bias[N])  (B is transposed, fused bias+relu)
-__global__ void gemm_nt_bias_relu_kernel(
-    const float* __restrict__ A,
-    const float* __restrict__ B,
-    const float* __restrict__ bias,
-    float* __restrict__ C,
-    int M, int K, int N, bool relu)
-{
-    __shared__ float As[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
-    
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col = blockIdx.x * TILE_SIZE + threadIdx.x;
-    
-    float sum = 0.0f;
-    
-    int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
-    
-    for (int t = 0; t < numTiles; ++t) {
-        int a_col = t * TILE_SIZE + threadIdx.x;
-        int b_col = t * TILE_SIZE + threadIdx.y;
-        
-        As[threadIdx.y][threadIdx.x] = (row < M && a_col < K) ? A[row * K + a_col] : 0.0f;
-        Bs[threadIdx.y][threadIdx.x] = (col < N && b_col < K) ? B[col * K + b_col] : 0.0f;
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int k = 0; k < TILE_SIZE; ++k) {
-            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
-        }
-        
-        __syncthreads();
-    }
-    
-    if (row < M && col < N) {
-        float val = sum + bias[col];
-        C[row * N + col] = relu ? fmaxf(val, 0.0f) : val;
-    }
-}
-
-// Optimized version with register blocking - fused bias + relu
-__global__ void gemm_nt_bias_relu_optimized_kernel(
-    const float* __restrict__ A,
-    const float* __restrict__ B,
-    const float* __restrict__ bias,
-    float* __restrict__ C,
-    int M, int K, int N, bool relu)
-{
-    __shared__ float As[TILE_K][TILE_M];
-    __shared__ float Bs[TILE_K][TILE_N];
-    
-    int bx = blockIdx.x, by = blockIdx.y;
-    int tx = threadIdx.x, ty = threadIdx.y;
-    int tid = ty * blockDim.x + tx;
-    
-    float acc[THREAD_M][THREAD_N] = {0.0f};
-    
-    int row_base = by * TILE_M;
-    int col_base = bx * TILE_N;
-    
-    int threads_per_block = blockDim.x * blockDim.y;
-    
-    for (int k = 0; k < K; k += TILE_K) {
-        for (int i = tid; i < TILE_K * TILE_M; i += threads_per_block) {
-            int ki = i / TILE_M;
-            int mi = i % TILE_M;
-            int global_row = row_base + mi;
-            int global_k = k + ki;
-            As[ki][mi] = (global_row < M && global_k < K) ? A[global_row * K + global_k] : 0.0f;
-        }
-        
-        for (int i = tid; i < TILE_K * TILE_N; i += threads_per_block) {
-            int ki = i / TILE_N;
-            int ni = i % TILE_N;
-            int global_col = col_base + ni;
-            int global_k = k + ki;
-            Bs[ki][ni] = (global_col < N && global_k < K) ? B[global_col * K + global_k] : 0.0f;
-        }
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int ki = 0; ki < TILE_K; ++ki) {
-            float a_reg[THREAD_M], b_reg[THREAD_N];
-            
-            #pragma unroll
-            for (int m = 0; m < THREAD_M; ++m) {
-                a_reg[m] = As[ki][ty * THREAD_M + m];
-            }
-            #pragma unroll
-            for (int n = 0; n < THREAD_N; ++n) {
-                b_reg[n] = Bs[ki][tx * THREAD_N + n];
-            }
-            
-            #pragma unroll
-            for (int m = 0; m < THREAD_M; ++m) {
-                #pragma unroll
-                for (int n = 0; n < THREAD_N; ++n) {
-                    acc[m][n] += a_reg[m] * b_reg[n];
-                }
-            }
-        }
-        
-        __syncthreads();
-    }
-    
-    #pragma unroll
-    for (int m = 0; m < THREAD_M; ++m) {
-        int global_row = row_base + ty * THREAD_M + m;
-        #pragma unroll
-        for (int n = 0; n < THREAD_N; ++n) {
-            int global_col = col_base + tx * THREAD_N + n;
-            if (global_row < M && global_col < N) {
-                float val = acc[m][n] + bias[global_col];
-                C[global_row * N + global_col] = relu ? fmaxf(val, 0.0f) : val;
-            }
-        }
-    }
-}
-
-// Wrapper with automatic kernel selection for fused GEMM+bias+relu
-void gemm_nt_bias_relu(const float* A, const float* B, const float* bias, 
-                        float* C, int M, int K, int N, bool relu, cudaStream_t stream) {
-    if (M >= 64 && N >= 64 && K >= 16) {
-        dim3 block(TILE_N / THREAD_N, TILE_M / THREAD_M);
-        dim3 grid((N + TILE_N - 1) / TILE_N, (M + TILE_M - 1) / TILE_M);
-        gemm_nt_bias_relu_optimized_kernel<<<grid, block, 0, stream>>>(A, B, bias, C, M, K, N, relu);
-    } else {
-        dim3 block(TILE_SIZE, TILE_SIZE);
-        dim3 grid((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
-        gemm_nt_bias_relu_kernel<<<grid, block, 0, stream>>>(A, B, bias, C, M, K, N, relu);
-    }
-}
-
-// ============== STANDARD GEMM KERNELS ==============
-
-// C[M,N] = A[M,K] * B[K,N]
-__global__ void gemm_nn_kernel(
-    const float* __restrict__ A,
-    const float* __restrict__ B,
-    float* __restrict__ C,
-    int M, int K, int N)
-{
-    __shared__ float As[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
-    
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col = blockIdx.x * TILE_SIZE + threadIdx.x;
-    
-    float sum = 0.0f;
-    
-    int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
-    
-    for (int t = 0; t < numTiles; ++t) {
-        int a_col = t * TILE_SIZE + threadIdx.x;
-        int b_row = t * TILE_SIZE + threadIdx.y;
-        
-        As[threadIdx.y][threadIdx.x] = (row < M && a_col < K) ? A[row * K + a_col] : 0.0f;
-        Bs[threadIdx.y][threadIdx.x] = (b_row < K && col < N) ? B[b_row * N + col] : 0.0f;
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int k = 0; k < TILE_SIZE; ++k) {
-            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
-        }
-        
-        __syncthreads();
-    }
-    
-    if (row < M && col < N) {
-        C[row * N + col] = sum;
-    }
-}
-
-// C[M,N] = A^T[K,M] * B[K,N]  (A is transposed)
-__global__ void gemm_tn_kernel(
-    const float* __restrict__ A,
-    const float* __restrict__ B,
-    float* __restrict__ C,
-    int M, int K, int N)
-{
-    __shared__ float As[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
-    
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col = blockIdx.x * TILE_SIZE + threadIdx.x;
-    
-    float sum = 0.0f;
-    
-    int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
-    
-    for (int t = 0; t < numTiles; ++t) {
-        int a_row = t * TILE_SIZE + threadIdx.x;
-        int b_row = t * TILE_SIZE + threadIdx.y;
-        
-        As[threadIdx.y][threadIdx.x] = (a_row < K && row < M) ? A[a_row * M + row] : 0.0f;
-        Bs[threadIdx.y][threadIdx.x] = (b_row < K && col < N) ? B[b_row * N + col] : 0.0f;
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int k = 0; k < TILE_SIZE; ++k) {
-            sum += As[k][threadIdx.y] * Bs[k][threadIdx.x];
-        }
-        
-        __syncthreads();
-    }
-    
-    if (row < M && col < N) {
-        C[row * N + col] = sum;
-    }
-}
-
-void gemm_nn(const float* A, const float* B, float* C, int M, int K, int N, cudaStream_t stream) {
-    dim3 block(TILE_SIZE, TILE_SIZE);
-    dim3 grid((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
-    gemm_nn_kernel<<<grid, block, 0, stream>>>(A, B, C, M, K, N);
-}
-
-void gemm_tn(const float* A, const float* B, float* C, int M, int K, int N, cudaStream_t stream) {
-    dim3 block(TILE_SIZE, TILE_SIZE);
-    dim3 grid((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
-    gemm_tn_kernel<<<grid, block, 0, stream>>>(A, B, C, M, K, N);
-}
-
-// ============== IM2COL KERNEL ==============
-__global__ void im2col_kernel(
-    const float* __restrict__ input,
-    float* __restrict__ col,
-    int B, int H, int W, int C,
-    int K, int P, int H_out, int W_out)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = B * H_out * W_out * C * K * K;
-    if (idx >= total) return;
-    
-    int kk = idx % (K * K);
-    int tmp = idx / (K * K);
-    int c = tmp % C;
-    tmp /= C;
-    int ow = tmp % W_out;
-    tmp /= W_out;
-    int oh = tmp % H_out;
-    int b = tmp / H_out;
-    
-    int kh = kk / K;
-    int kw = kk % K;
-    int ih = oh - P + kh;
-    int iw = ow - P + kw;
-    
-    int col_row = b * (H_out * W_out) + oh * W_out + ow;
-    int col_col = c * K * K + kh * K + kw;
-    int col_width = C * K * K;
-    
-    float val = 0.0f;
-    if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
-        val = input[b * (H * W * C) + ih * (W * C) + iw * C + c];
-    }
-    col[col_row * col_width + col_col] = val;
-}
-
-// ============== COL2IM KERNEL ==============
-__global__ void col2im_kernel(
-    const float* __restrict__ col,
-    float* __restrict__ input_grad,
-    int B, int H, int W, int C,
-    int K, int P, int H_out, int W_out)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = B * H * W * C;
-    if (idx >= total) return;
-    
-    int ic = idx % C;
-    int tmp = idx / C;
-    int iw = tmp % W;
-    tmp /= W;
-    int ih = tmp % H;
-    int b = tmp / H;
-    
-    float sum = 0.0f;
-    int col_width = C * K * K;
-    
-    #pragma unroll
-    for (int kh = 0; kh < K; ++kh) {
-        #pragma unroll
-        for (int kw = 0; kw < K; ++kw) {
-            int oh = ih + P - kh;
-            int ow = iw + P - kw;
-            
-            if (oh >= 0 && oh < H_out && ow >= 0 && ow < W_out) {
-                int col_row = b * (H_out * W_out) + oh * W_out + ow;
-                int col_col = ic * K * K + kh * K + kw;
-                sum += col[col_row * col_width + col_col];
-            }
-        }
-    }
-    input_grad[idx] = sum;
-}
-
-// ============== FUSED MAXPOOL ==============
-__global__ void maxpool_kernel(
-    const float* __restrict__ input,
-    float* __restrict__ output,
-    int* __restrict__ indices,
-    int B, int H_in, int W_in, int C)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int H_out = H_in / 2, W_out = W_in / 2;
-    int total = B * H_out * W_out * C;
-    if (idx >= total) return;
-    
-    int c = idx % C;
-    int tmp = idx / C;
-    int wo = tmp % W_out;
-    tmp /= W_out;
-    int ho = tmp % H_out;
-    int b = tmp / H_out;
-    
-    int hi = ho * 2, wi = wo * 2;
-    float max_val = -1e10f;
-    int max_idx = 0;
-    
-    #pragma unroll
-    for (int dh = 0; dh < 2; ++dh) {
-        #pragma unroll
-        for (int dw = 0; dw < 2; ++dw) {
-            int in_idx = b * (H_in * W_in * C) + (hi + dh) * (W_in * C) + (wi + dw) * C + c;
-            float v = input[in_idx];
-            if (v > max_val) { max_val = v; max_idx = in_idx; }
-        }
-    }
-    output[idx] = max_val;
-    indices[idx] = max_idx;
-}
-
-// ============== UPSAMPLE ==============
-__global__ void upsample_kernel(
-    const float* __restrict__ input,
-    float* __restrict__ output,
-    int B, int H_in, int W_in, int C)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int H_out = H_in * 2, W_out = W_in * 2;
-    int total = B * H_out * W_out * C;
-    if (idx >= total) return;
-    
-    int c = idx % C;
-    int tmp = idx / C;
-    int wo = tmp % W_out;
-    tmp /= W_out;
-    int ho = tmp % H_out;
-    int b = tmp / H_out;
-    
-    output[idx] = input[b * (H_in * W_in * C) + (ho / 2) * (W_in * C) + (wo / 2) * C + c];
-}
-
-// ============== FUSED BACKWARD KERNELS ==============
-
-// Fused MSE loss + backward in single kernel
-__global__ void mse_loss_backward_fused_kernel(
-    const float* __restrict__ pred,
-    const float* __restrict__ target,
-    float* __restrict__ grad,
-    float* __restrict__ partial_loss,
-    int size)
-{
-    __shared__ float s[256];
-    int tid = threadIdx.x;
-    int idx = blockIdx.x * blockDim.x + tid;
-    float local_sum = 0.0f;
-    float inv_size = 2.0f / size;
-    
-    for (int i = idx; i < size; i += blockDim.x * gridDim.x) {
-        float d = pred[i] - target[i];
-        grad[i] = d * inv_size;
-        local_sum += d * d;
-    }
-    
-    s[tid] = local_sum;
-    __syncthreads();
-    
-    for (int i = 128; i > 0; i >>= 1) {
-        if (tid < i) s[tid] += s[tid + i];
-        __syncthreads();
-    }
-    if (tid == 0) atomicAdd(partial_loss, s[0]);
-}
-
-// ============== FUSED UPSAMPLE + RELU BACKWARD ==============
-__global__ void fused_upsample_relu_backward_kernel(
-    const float* __restrict__ d_out,
-    const float* __restrict__ fwd,
-    float* __restrict__ d_in,
-    int B, int H_in, int W_in, int C)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = B * H_in * W_in * C;
-    if (idx >= total) return;
-    
-    int c = idx % C;
-    int tmp = idx / C;
-    int wi = tmp % W_in;
-    tmp /= W_in;
-    int hi = tmp % H_in;
-    int b = tmp / H_in;
-    
-    int H_out = H_in * 2, W_out = W_in * 2;
-    int ho = hi * 2, wo = wi * 2;
-    
-    // Upsample backward: sum 2x2 region
-    float sum = d_out[b * (H_out * W_out * C) + ho * (W_out * C) + wo * C + c]
-              + d_out[b * (H_out * W_out * C) + ho * (W_out * C) + (wo + 1) * C + c]
-              + d_out[b * (H_out * W_out * C) + (ho + 1) * (W_out * C) + wo * C + c]
-              + d_out[b * (H_out * W_out * C) + (ho + 1) * (W_out * C) + (wo + 1) * C + c];
-    
-    // Fused ReLU backward
-    d_in[idx] = (fwd[idx] > 0.0f) ? sum : 0.0f;
-}
-
-void fused_upsample_relu_backward(const float* d_out, const float* fwd, float* d_in,
-                                   int B, int H_in, int W_in, int C, cudaStream_t stream) {
-    int total = B * H_in * W_in * C;
-    fused_upsample_relu_backward_kernel<<<GRID(total), BLOCK_SIZE, 0, stream>>>(
-        d_out, fwd, d_in, B, H_in, W_in, C);
-}
-
-
-// ============== VECTORIZED UTILITY KERNELS ==============
-
-__global__ void fill_zeros_vectorized_kernel(float* data, int size) {
-    int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx + 3 < size) {
-        *reinterpret_cast<float4*>(&data[idx]) = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-    } else if (idx < size) {
-        for (int i = idx; i < size; ++i) data[i] = 0.0f;
-    }
-}
-
-__global__ void sgd_vectorized_kernel(float* w, const float* g, int size, float lr) {
-    int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx + 3 < size) {
-        float4 w4 = *reinterpret_cast<float4*>(&w[idx]);
-        float4 g4 = *reinterpret_cast<const float4*>(&g[idx]);
-        w4.x -= lr * g4.x;
-        w4.y -= lr * g4.y;
-        w4.z -= lr * g4.z;
-        w4.w -= lr * g4.w;
-        *reinterpret_cast<float4*>(&w[idx]) = w4;
-    } else if (idx < size) {
-        for (int i = idx; i < size; ++i) {
-            w[i] -= lr * g[i];
-        }
-    }
-}
-
-__global__ void sgd_kernel(float* w, const float* g, int size, float lr) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < size) w[i] -= lr * g[i];
-}
-
-// ============== FUSED MAXPOOL + RELU BACKWARD ==============
-__global__ void fused_maxpool_relu_backward_kernel(
-    const float* __restrict__ d_out,
-    const int* __restrict__ indices,
-    const float* __restrict__ fwd,
-    float* __restrict__ d_in,
-    int pool_size)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= pool_size) return;
-    
-    int target_idx = indices[i];
-    float grad = d_out[i];
-    
-    // Fused ReLU backward: only propagate if forward was > 0
-    if (fwd[target_idx] > 0.0f) {
-        atomicAdd(&d_in[target_idx], grad);
-    }
-}
-
-void fused_maxpool_relu_backward(const float* d_out, const int* indices, const float* fwd,
-                                  float* d_in, int pool_size, int input_size, cudaStream_t stream) {
-    // First zero d_in
-    fill_zeros_vectorized_kernel<<<GRID(input_size / 4), BLOCK_SIZE, 0, stream>>>(d_in, input_size);
-    // Then scatter with fused relu
-    fused_maxpool_relu_backward_kernel<<<GRID(pool_size), BLOCK_SIZE, 0, stream>>>(
-        d_out, indices, fwd, d_in, pool_size);
-}
-
-// ============== FUSED GEMM_NN + RELU BACKWARD (for input gradient) ==============
-// Computes: d_col = ReLU_backward(d_out, fwd) * W
-__global__ void gemm_nn_relu_backward_kernel(
-    const float* __restrict__ d_out,
-    const float* __restrict__ fwd,
-    const float* __restrict__ W,
-    float* __restrict__ d_col,
-    int M, int K, int N)
-{
-    __shared__ float As[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
-    
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col = blockIdx.x * TILE_SIZE + threadIdx.x;
-    
-    float sum = 0.0f;
-    int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
-    
-    for (int t = 0; t < numTiles; ++t) {
-        int a_col = t * TILE_SIZE + threadIdx.x;
-        int b_row = t * TILE_SIZE + threadIdx.y;
-        
-        // Load A with ReLU backward mask applied
-        float a_val = 0.0f;
-        if (row < M && a_col < K) {
-            float fwd_val = fwd[row * K + a_col];
-            float grad_val = d_out[row * K + a_col];
-            a_val = (fwd_val > 0.0f) ? grad_val : 0.0f;
-        }
-        As[threadIdx.y][threadIdx.x] = a_val;
-        Bs[threadIdx.y][threadIdx.x] = (b_row < K && col < N) ? W[b_row * N + col] : 0.0f;
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int k = 0; k < TILE_SIZE; ++k) {
-            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
-        }
-        
-        __syncthreads();
-    }
-    
-    if (row < M && col < N) {
-        d_col[row * N + col] = sum;
-    }
-}
-
-void gemm_nn_relu_backward(const float* d_out, const float* fwd, const float* W,
-                            float* d_col, int M, int K, int N, cudaStream_t stream) {
-    dim3 block(TILE_SIZE, TILE_SIZE);
-    dim3 grid((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
-    gemm_nn_relu_backward_kernel<<<grid, block, 0, stream>>>(d_out, fwd, W, d_col, M, K, N);
-}
-
-// ============== FUSED GEMM_TN + RELU BACKWARD (for weight gradient) ==============
-// Computes: dW = (ReLU_backward(d_out, fwd))^T * col
-__global__ void gemm_tn_relu_backward_kernel(
-    const float* __restrict__ d_out,
-    const float* __restrict__ fwd,
-    const float* __restrict__ col,
-    float* __restrict__ dW,
-    int M, int K, int N)
-{
-    __shared__ float As[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
-    
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col_idx = blockIdx.x * TILE_SIZE + threadIdx.x;
-    
-    float sum = 0.0f;
-    int numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
-    
-    for (int t = 0; t < numTiles; ++t) {
-        int a_row = t * TILE_SIZE + threadIdx.x;
-        int b_row = t * TILE_SIZE + threadIdx.y;
-        
-        // Load A^T with ReLU backward mask
-        float a_val = 0.0f;
-        if (a_row < K && row < M) {
-            float fwd_val = fwd[a_row * M + row];
-            float grad_val = d_out[a_row * M + row];
-            a_val = (fwd_val > 0.0f) ? grad_val : 0.0f;
-        }
-        As[threadIdx.y][threadIdx.x] = a_val;
-        Bs[threadIdx.y][threadIdx.x] = (b_row < K && col_idx < N) ? col[b_row * N + col_idx] : 0.0f;
-        
-        __syncthreads();
-        
-        #pragma unroll
-        for (int k = 0; k < TILE_SIZE; ++k) {
-            sum += As[k][threadIdx.y] * Bs[k][threadIdx.x];
-        }
-        
-        __syncthreads();
-    }
-    
-    if (row < M && col_idx < N) {
-        dW[row * N + col_idx] = sum;
-    }
-}
-
-void gemm_tn_relu_backward(const float* d_out, const float* fwd, const float* col,
-                            float* dW, int M, int K, int N, cudaStream_t stream) {
-    dim3 block(TILE_SIZE, TILE_SIZE);
-    dim3 grid((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
-    gemm_tn_relu_backward_kernel<<<grid, block, 0, stream>>>(d_out, fwd, col, dW, M, K, N);
-}
-
-// ============== FUSED BIAS BACKWARD + RELU ==============
-__global__ void bias_backward_relu_kernel(
-    const float* __restrict__ d_out,
-    const float* __restrict__ fwd,
-    float* __restrict__ d_bias,
-    int B_HW, int C)
-{
-    __shared__ float shared_sum[BLOCK_SIZE];
-    
-    int oc = blockIdx.x;
-    if (oc >= C) return;
-    
-    int tid = threadIdx.x;
-    float local_sum = 0.0f;
-    
-    for (int i = tid; i < B_HW; i += BLOCK_SIZE) {
-        int idx = i * C + oc;
-        float fwd_val = fwd[idx];
-        float grad_val = d_out[idx];
-        local_sum += (fwd_val > 0.0f) ? grad_val : 0.0f;
-    }
-    
-    shared_sum[tid] = local_sum;
-    __syncthreads();
-    
-    if (tid < 128) shared_sum[tid] += shared_sum[tid + 128]; __syncthreads();
-    if (tid < 64) shared_sum[tid] += shared_sum[tid + 64]; __syncthreads();
-    
-    if (tid < 32) {
-        volatile float* vs = shared_sum;
-        vs[tid] += vs[tid + 32];
-        vs[tid] += vs[tid + 16];
-        vs[tid] += vs[tid + 8];
-        vs[tid] += vs[tid + 4];
-        vs[tid] += vs[tid + 2];
-        vs[tid] += vs[tid + 1];
-    }
-    
-    if (tid == 0) d_bias[oc] = shared_sum[0];
-}
-
-// ============== NON-FUSED BACKWARD KERNELS (for layers without ReLU) ==============
-
-__global__ void relu_backward_kernel(const float* d_out, const float* fwd, float* d_in, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < size) d_in[i] = (fwd[i] > 0.0f) ? d_out[i] : 0.0f;
-}
-
-__global__ void maxpool_backward_kernel(const float* d_out, const int* idx, float* d_in, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < size) atomicAdd(&d_in[idx[i]], d_out[i]);
-}
-
-__global__ void upsample_backward_kernel(const float* d_out, float* d_in, int B, int H_in, int W_in, int C) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = B * H_in * W_in * C;
-    if (idx >= total) return;
-    
-    int c = idx % C;
-    int tmp = idx / C;
-    int wi = tmp % W_in;
-    tmp /= W_in;
-    int hi = tmp % H_in;
-    int b = tmp / H_in;
-    
-    int H_out = H_in * 2, W_out = W_in * 2;
-    int ho = hi * 2, wo = wi * 2;
-    
-    float sum = d_out[b * (H_out * W_out * C) + ho * (W_out * C) + wo * C + c]
-              + d_out[b * (H_out * W_out * C) + ho * (W_out * C) + (wo + 1) * C + c]
-              + d_out[b * (H_out * W_out * C) + (ho + 1) * (W_out * C) + wo * C + c]
-              + d_out[b * (H_out * W_out * C) + (ho + 1) * (W_out * C) + (wo + 1) * C + c];
-    d_in[idx] = sum;
-}
-
-__global__ void bias_backward_kernel(const float* d_out, float* d_bias, int B_HW, int C) {
-    __shared__ float shared_sum[BLOCK_SIZE];
-    
-    int oc = blockIdx.x;
-    if (oc >= C) return;
-    
-    int tid = threadIdx.x;
-    float local_sum = 0.0f;
-    
-    for (int i = tid; i < B_HW; i += BLOCK_SIZE) {
-        local_sum += d_out[i * C + oc];
-    }
-    
-    shared_sum[tid] = local_sum;
-    __syncthreads();
-    
-    if (tid < 128) shared_sum[tid] += shared_sum[tid + 128]; __syncthreads();
-    if (tid < 64) shared_sum[tid] += shared_sum[tid + 64]; __syncthreads();
-    
-    if (tid < 32) {
-        volatile float* vs = shared_sum;
-        vs[tid] += vs[tid + 32];
-        vs[tid] += vs[tid + 16];
-        vs[tid] += vs[tid + 8];
-        vs[tid] += vs[tid + 4];
-        vs[tid] += vs[tid + 2];
-        vs[tid] += vs[tid + 1];
-    }
-    
-    if (tid == 0) d_bias[oc] = shared_sum[0];
-}
-
-void init_random(std::vector<float>& v, int fan_in, int fan_out) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    float std_dev = std::sqrt(2.0f / (fan_in + fan_out));
-    std::normal_distribution<float> dist(0.0f, std_dev);
-    for (auto& x : v) x = dist(gen);
-}
-
-
-void save_weights(const std::string& f, const std::vector<float>& d) {
-    std::ofstream file(f, std::ios::binary);
-    uint32_t sz = d.size();
-    file.write((char*)&sz, 4);
-    file.write((char*)d.data(), d.size() * 4);
-}
-
-// ...existing code (all kernels and helper functions)...
+#include "optimize_kernel.h"
 
 int main() {
     const int B = 64, EPOCHS = 40;
@@ -922,96 +156,77 @@ int main() {
             
             // ========== FORWARD (Fused GEMM+Bias+ReLU) ==========
             // Layer 1: Conv + ReLU + MaxPool
-            im2col_kernel<<<GRID(col1_size), BLOCK_SIZE, 0, stream_compute>>>(
-                curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32);
+            im2col(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute);
             gemm_nt_bias_relu(d_col1, d_w1, d_b1, d_l1, B * 32 * 32, 3 * 9, 256, true, stream_compute);
-            maxpool_kernel<<<GRID(s_p1), BLOCK_SIZE, 0, stream_compute>>>(d_l1, d_p1, d_idx1, B, 32, 32, 256);
+            maxpool_forward(d_l1, d_p1, d_idx1, B, 32, 32, 256, stream_compute);
             
             // Layer 2: Conv + ReLU + MaxPool
-            im2col_kernel<<<GRID(col2_size), BLOCK_SIZE, 0, stream_compute>>>(
-                d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16);
+            im2col(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
             gemm_nt_bias_relu(d_col2, d_w2, d_b2, d_l2, B * 16 * 16, 256 * 9, 128, true, stream_compute);
-            maxpool_kernel<<<GRID(s_p2), BLOCK_SIZE, 0, stream_compute>>>(d_l2, d_p2, d_idx2, B, 16, 16, 128);
+            maxpool_forward(d_l2, d_p2, d_idx2, B, 16, 16, 128, stream_compute);
             
             // Layer 3: Conv + ReLU + Upsample
-            im2col_kernel<<<GRID(col3_size), BLOCK_SIZE, 0, stream_compute>>>(
-                d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8);
+            im2col(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
             gemm_nt_bias_relu(d_col3, d_w3, d_b3, d_l3, B * 8 * 8, 128 * 9, 128, true, stream_compute);
-            upsample_kernel<<<GRID(s_u3), BLOCK_SIZE, 0, stream_compute>>>(d_l3, d_u3, B, 8, 8, 128);
+            upsample_forward(d_l3, d_u3, B, 8, 8, 128, stream_compute);
             
             // Layer 4: Conv + ReLU + Upsample
-            im2col_kernel<<<GRID(col4_size), BLOCK_SIZE, 0, stream_compute>>>(
-                d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16);
+            im2col(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
             gemm_nt_bias_relu(d_col4, d_w4, d_b4, d_l4, B * 16 * 16, 128 * 9, 256, true, stream_compute);
-            upsample_kernel<<<GRID(s_u4), BLOCK_SIZE, 0, stream_compute>>>(d_l4, d_u4, B, 16, 16, 256);
+            upsample_forward(d_l4, d_u4, B, 16, 16, 256, stream_compute);
             
             // Layer 5: Conv (no ReLU)
-            im2col_kernel<<<GRID(col5_size), BLOCK_SIZE, 0, stream_compute>>>(
-                d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32);
+            im2col(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
             gemm_nt_bias_relu(d_col5, d_w5, d_b5, d_out, B * 32 * 32, 256 * 9, 3, false, stream_compute);
             
             // ========== FUSED LOSS + BACKWARD ==========
-            mse_loss_backward_fused_kernel<<<256, 256, 0, stream_compute>>>(
-                d_out, curr_input, d_dout, d_loss, s_in);
+            mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
             // ========== BACKWARD WITH FUSED KERNELS ==========
             
             // Layer 5 backward (no ReLU - use standard kernels)
             gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9, stream_compute);
-            col2im_kernel<<<GRID(s_u4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_dcol, d_du4, B, 32, 32, 256, 3, 1, 32, 32);
+            col2im(d_dcol, d_du4, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
             gemm_tn(d_dout, d_col5, d_dw5, 3, B * 32 * 32, 256 * 9, stream_compute);
-            bias_backward_kernel<<<3, BLOCK_SIZE, 0, stream_compute>>>(d_dout, d_db5, B * 32 * 32, 3);
+            bias_backward(d_dout, d_db5, B * 32 * 32, 3, stream_compute);
             
             // Layer 4 backward (FUSED: upsample + relu backward)
             fused_upsample_relu_backward(d_du4, d_l4, d_dl4, B, 16, 16, 256, stream_compute);
             gemm_nn(d_dl4, d_w4, d_dcol, B * 16 * 16, 256, 128 * 9, stream_compute);
-            col2im_kernel<<<GRID(s_u3), BLOCK_SIZE, 0, stream_compute>>>(
-                d_dcol, d_du3, B, 16, 16, 128, 3, 1, 16, 16);
+            col2im(d_dcol, d_du3, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
             gemm_tn(d_dl4, d_col4, d_dw4, 256, B * 16 * 16, 128 * 9, stream_compute);
-            bias_backward_kernel<<<256, BLOCK_SIZE, 0, stream_compute>>>(d_dl4, d_db4, B * 16 * 16, 256);
+            bias_backward(d_dl4, d_db4, B * 16 * 16, 256, stream_compute);
             
             // Layer 3 backward (FUSED: upsample + relu backward)
             fused_upsample_relu_backward(d_du3, d_l3, d_dl3, B, 8, 8, 128, stream_compute);
             gemm_nn(d_dl3, d_w3, d_dcol, B * 8 * 8, 128, 128 * 9, stream_compute);
-            col2im_kernel<<<GRID(s_p2), BLOCK_SIZE, 0, stream_compute>>>(
-                d_dcol, d_dp2, B, 8, 8, 128, 3, 1, 8, 8);
+            col2im(d_dcol, d_dp2, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
             gemm_tn(d_dl3, d_col3, d_dw3, 128, B * 8 * 8, 128 * 9, stream_compute);
-            bias_backward_kernel<<<128, BLOCK_SIZE, 0, stream_compute>>>(d_dl3, d_db3, B * 8 * 8, 128);
+            bias_backward(d_dl3, d_db3, B * 8 * 8, 128, stream_compute);
             
             // Layer 2 backward (FUSED: zero + maxpool + relu backward)
             fused_maxpool_relu_backward(d_dp2, d_idx2, d_l2, d_dl2, s_p2, s_l2, stream_compute);
             gemm_nn(d_dl2, d_w2, d_dcol, B * 16 * 16, 128, 256 * 9, stream_compute);
-            col2im_kernel<<<GRID(s_p1), BLOCK_SIZE, 0, stream_compute>>>(
-                d_dcol, d_dp1, B, 16, 16, 256, 3, 1, 16, 16);
+            col2im(d_dcol, d_dp1, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
             gemm_tn(d_dl2, d_col2, d_dw2, 128, B * 16 * 16, 256 * 9, stream_compute);
-            bias_backward_kernel<<<128, BLOCK_SIZE, 0, stream_compute>>>(d_dl2, d_db2, B * 16 * 16, 128);
+            bias_backward(d_dl2, d_db2, B * 16 * 16, 128, stream_compute);
             
             // Layer 1 backward (FUSED: zero + maxpool + relu backward)
             fused_maxpool_relu_backward(d_dp1, d_idx1, d_l1, d_dl1, s_p1, s_l1, stream_compute);
             gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9, stream_compute);
-            bias_backward_kernel<<<256, BLOCK_SIZE, 0, stream_compute>>>(d_dl1, d_db1, B * 32 * 32, 256);
+            bias_backward(d_dl1, d_db1, B * 32 * 32, 256, stream_compute);
             
             // ========== SGD UPDATE (Vectorized) ==========
-            sgd_vectorized_kernel<<<GRID(h_w1.size() / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_w1, d_dw1, h_w1.size(), LR);
-            sgd_vectorized_kernel<<<GRID(256 / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_b1, d_db1, 256, LR);
-            sgd_vectorized_kernel<<<GRID(h_w2.size() / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_w2, d_dw2, h_w2.size(), LR);
-            sgd_vectorized_kernel<<<GRID(128 / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_b2, d_db2, 128, LR);
-            sgd_vectorized_kernel<<<GRID(h_w3.size() / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_w3, d_dw3, h_w3.size(), LR);
-            sgd_vectorized_kernel<<<GRID(128 / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_b3, d_db3, 128, LR);
-            sgd_vectorized_kernel<<<GRID(h_w4.size() / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_w4, d_dw4, h_w4.size(), LR);
-            sgd_vectorized_kernel<<<GRID(256 / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_b4, d_db4, 256, LR);
-            sgd_vectorized_kernel<<<GRID(h_w5.size() / 4), BLOCK_SIZE, 0, stream_compute>>>(
-                d_w5, d_dw5, h_w5.size(), LR);
-            sgd_kernel<<<GRID(3), BLOCK_SIZE, 0, stream_compute>>>(d_b5, d_db5, 3, LR);
+            sgd_update_vectorized(d_w1, d_dw1, h_w1.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b1, d_db1, 256, LR, stream_compute);
+            sgd_update_vectorized(d_w2, d_dw2, h_w2.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b2, d_db2, 128, LR, stream_compute);
+            sgd_update_vectorized(d_w3, d_dw3, h_w3.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b3, d_db3, 128, LR, stream_compute);
+            sgd_update_vectorized(d_w4, d_dw4, h_w4.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b4, d_db4, 256, LR, stream_compute);
+            sgd_update_vectorized(d_w5, d_dw5, h_w5.size(), LR, stream_compute);
+            sgd_update(d_b5, d_db5, 3, LR, stream_compute);
         }
         
         float h_loss;
@@ -1021,16 +236,9 @@ int main() {
         auto ep_end = std::chrono::high_resolution_clock::now();
         double ep_time = std::chrono::duration<double>(ep_end - ep_start).count();
 
-        // Print example weights from h_w1 after each epoch
-        std::cout << "Epoch " << epoch + 1 << ": Example weights from h_w1: ";
+        // Print example weights from d_w1 after each epoch
         cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
         
-        // Print example weights from h_w1 after each epoch
-        std::cout << "Epoch " << epoch + 1 << ": Example weights from d_w1: ";
-        for (size_t i = 0; i < std::min((size_t)10, h_w1.size()); ++i) {
-            std::cout << std::fixed << std::setprecision(6) << h_w1[i] << " ";
-        }
-        std::cout << std::endl;
 
         std::cout << "Epoch " << (epoch + 1) << "/" << EPOCHS
                   << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
