@@ -7,7 +7,6 @@
 int main() {
     const int B = 64, EPOCHS = 5;
     const int max_images = 96;
-    const float LR = 0.001f;
     
     CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
@@ -86,9 +85,7 @@ int main() {
     
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         for (int batch = 0; batch < num_batches; ++batch) {
-            int curr_buf = batch % 2;
             int next_buf = (batch + 1) % 2;
-            float* curr_input = d_input[curr_buf];
             
             // Asynchronously transfer next batch while computing current batch
             if (batch + 1 < num_batches) {

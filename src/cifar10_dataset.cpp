@@ -33,11 +33,9 @@ void CIFAR10Dataset::read_batch(const std::string& filename, std::vector<float>&
             images.push_back(static_cast<float>(buffer[i + 1]));
         }
     }
-    std::cout << "Loaded batch: " << filename << " | Current Total: " << labels.size() << std::endl;
 }
 
 void CIFAR10Dataset::load_data() {
-    std::cout << "--- Loading CIFAR-10 Dataset ---" << std::endl;
 
     // Load 5 file training (data_batch_1.bin -> data_batch_5.bin) [cite: 33, 44]
     for (int i = 1; i <= 5; ++i) {
@@ -49,12 +47,6 @@ void CIFAR10Dataset::load_data() {
     std::string test_filename = data_dir + "/test_batch.bin";
     read_batch(test_filename, test_images, test_labels);
 
-    std::cout << "Successfully loaded " << get_num_train() << " train images and " 
-              << get_num_test() << " test images." << std::endl;
-
-    // Apply Min-Max normalization: [0, 255] -> [0, 1]
-    std::cout << "Applying Min-Max normalization [0, 255] -> [0, 1]..." << std::endl;
-    
     const float min_val = 0.0f;
     const float max_val = 255.0f;
     const float range = max_val - min_val;
@@ -66,6 +58,4 @@ void CIFAR10Dataset::load_data() {
     for (size_t i = 0; i < test_images.size(); ++i) {
         test_images[i] = (test_images[i] - min_val) / range;
     }
-    
-    std::cout << "Normalization complete." << std::endl;
 }

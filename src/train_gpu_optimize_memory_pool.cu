@@ -25,7 +25,6 @@ public:
 int main() {
     const int B = 64, EPOCHS = 5;
     const int max_images = 96;
-    const float LR = 0.001f;
     
     CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
@@ -34,10 +33,6 @@ int main() {
     MemoryPool pool;
     
     int s_in = B * 32 * 32 * 3;
-    int s_l1 = B * 32 * 32 * 256, s_p1 = B * 16 * 16 * 256;
-    int s_l2 = B * 16 * 16 * 128, s_p2 = B * 8 * 8 * 128;
-    int s_l3 = B * 8 * 8 * 128,   s_u3 = B * 16 * 16 * 128;
-    int s_l4 = B * 16 * 16 * 256, s_u4 = B * 32 * 32 * 256;
     
     std::vector<float> h_w1(256 * 3 * 9), h_b1(256, 0);
     std::vector<float> h_w2(128 * 256 * 9), h_b2(128, 0);
@@ -54,39 +49,20 @@ int main() {
     init_random(h_b4, 1152, 256);
     init_random(h_b5, 2304, 3);
     
-    float *d_w1, *d_b1, *d_dw1, *d_db1;
-    float *d_w2, *d_b2, *d_dw2, *d_db2;
-    float *d_w3, *d_b3, *d_dw3, *d_db3;
-    float *d_w4, *d_b4, *d_dw4, *d_db4;
-    float *d_w5, *d_b5, *d_dw5, *d_db5;
+    float *d_w1, *d_b1;
+    float *d_w2, *d_b2;
+    float *d_w3, *d_b3;
+    float *d_w4, *d_b4;
+    float *d_w5, *d_b5;
     
     d_w1 = pool.alloc(h_w1.size() * 4); d_b1 = pool.alloc(256 * 4);
-    d_dw1 = pool.alloc(h_w1.size() * 4); d_db1 = pool.alloc(256 * 4);
     d_w2 = pool.alloc(h_w2.size() * 4); d_b2 = pool.alloc(128 * 4);
-    d_dw2 = pool.alloc(h_w2.size() * 4); d_db2 = pool.alloc(128 * 4);
     d_w3 = pool.alloc(h_w3.size() * 4); d_b3 = pool.alloc(128 * 4);
-    d_dw3 = pool.alloc(h_w3.size() * 4); d_db3 = pool.alloc(128 * 4);
     d_w4 = pool.alloc(h_w4.size() * 4); d_b4 = pool.alloc(256 * 4);
-    d_dw4 = pool.alloc(h_w4.size() * 4); d_db4 = pool.alloc(256 * 4);
     d_w5 = pool.alloc(h_w5.size() * 4); d_b5 = pool.alloc(3 * 4);
-    d_dw5 = pool.alloc(h_w5.size() * 4); d_db5 = pool.alloc(3 * 4);
     
     float *d_input;
     d_input = pool.alloc(s_in * 4);
-    
-    float *d_l1, *d_p1, *d_l2, *d_p2, *d_l3, *d_u3, *d_l4, *d_u4, *d_out;
-    d_l1 = pool.alloc(s_l1 * 4); d_p1 = pool.alloc(s_p1 * 4);
-    d_l2 = pool.alloc(s_l2 * 4); d_p2 = pool.alloc(s_p2 * 4);
-    d_l3 = pool.alloc(s_l3 * 4); d_u3 = pool.alloc(s_u3 * 4);
-    d_l4 = pool.alloc(s_l4 * 4); d_u4 = pool.alloc(s_u4 * 4);
-    d_out = pool.alloc(s_in * 4);
-    
-    float *d_dl1, *d_dp1, *d_dl2, *d_dp2, *d_dl3, *d_du3, *d_dl4, *d_du4, *d_dout;
-    d_dl1 = pool.alloc(s_l1 * 4); d_dp1 = pool.alloc(s_p1 * 4);
-    d_dl2 = pool.alloc(s_l2 * 4); d_dp2 = pool.alloc(s_p2 * 4);
-    d_dl3 = pool.alloc(s_l3 * 4); d_du3 = pool.alloc(s_u3 * 4);
-    d_dl4 = pool.alloc(s_l4 * 4); d_du4 = pool.alloc(s_u4 * 4);
-    d_dout = pool.alloc(s_in * 4);
     
     int *d_idx1 = (int*)pool.alloc(s_p1 * 4);
     int *d_idx2 = (int*)pool.alloc(s_p2 * 4);

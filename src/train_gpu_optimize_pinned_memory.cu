@@ -7,7 +7,6 @@
 int main() {
     const int B = 64, EPOCHS = 5;
     const int max_images = 96;
-    const float LR = 0.001f;
     
     CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
@@ -89,9 +88,7 @@ int main() {
     
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         for (int batch = 0; batch < num_batches; ++batch) {
-            int curr_buf = batch % 2;
             int next_buf = (batch + 1) % 2;
-            float* curr_input = d_input[curr_buf];
             
             // Pre-load first batch
             memcpy(h_pinned_input, dataset.get_train_images_ptr(), s_in * 4);
