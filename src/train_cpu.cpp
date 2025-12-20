@@ -32,9 +32,9 @@ void save_weights(const std::string& filename, const std::vector<float>& data) {
 
 int main() {
     // 1. CONFIG & DATA
-    int BATCH = 32;
-    int EPOCHS = 5;
-    int MAX_IMAGES = 96; // Giới hạn số ảnh để chạy nhanh trên CPU
+    int BATCH = 64;
+    int EPOCHS = 1;
+    int MAX_IMAGES = 50; // Giới hạn số ảnh để chạy nhanh trên CPU
     float LR = 0.001f;
 
     std::string data_path = "data/cifar-10-batches-bin";
