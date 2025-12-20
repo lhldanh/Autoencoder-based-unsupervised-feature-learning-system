@@ -33,6 +33,8 @@ int main() {
     MemoryPool pool;
     
     int s_in = B * 32 * 32 * 3;
+    int s_p1 = B * 16 * 16 * 256;
+    int s_p2 = B * 8 * 8 * 128;
     
     std::vector<float> h_w1(256 * 3 * 9), h_b1(256, 0);
     std::vector<float> h_w2(128 * 256 * 9), h_b2(128, 0);
