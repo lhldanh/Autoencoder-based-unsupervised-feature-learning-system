@@ -183,7 +183,20 @@ int main() {
             // Layer 5: Conv (no ReLU)
             im2col(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
             gemm_nt_bias_relu(d_col5, d_w5, d_b5, d_out, B * 32 * 32, 256 * 9, 3, false, stream_compute);
-            
+            fill_zeros_vectorized(d_dw1, h_w1.size(), stream_compute);
+            fill_zeros_vectorized(d_db1, 256, stream_compute);
+
+            fill_zeros_vectorized(d_dw2, h_w2.size(), stream_compute);
+            fill_zeros_vectorized(d_db2, 128, stream_compute);
+
+            fill_zeros_vectorized(d_dw3, h_w3.size(), stream_compute);
+            fill_zeros_vectorized(d_db3, 128, stream_compute);
+
+            fill_zeros_vectorized(d_dw4, h_w4.size(), stream_compute);
+            fill_zeros_vectorized(d_db4, 256, stream_compute);
+
+            fill_zeros_vectorized(d_dw5, h_w5.size(), stream_compute);
+            fill_zeros_vectorized(d_db5, 3, stream_compute);
             // ========== FUSED LOSS + BACKWARD ==========
             mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
