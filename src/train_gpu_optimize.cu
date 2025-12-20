@@ -240,16 +240,17 @@ int main() {
         
         auto ep_end = std::chrono::high_resolution_clock::now();
         double ep_time = std::chrono::duration<double>(ep_end - ep_start).count();
-
-        // Print example weights from d_w1 after each epoch
-        cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
         
-
         std::cout << "Epoch " << (epoch + 1) << "/" << EPOCHS
-                  << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
-                  << " | Time: " << std::setprecision(2) << ep_time << "s"
-                  << " | " << std::setprecision(0) << (num_batches * B) / ep_time << " img/s\n";
+        << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
+        << " | Time: " << std::setprecision(2) << ep_time << "s"
+        << " | " << std::setprecision(0) << (num_batches * B) / ep_time << " img/s\n";
+        
         // Print sample weights
+        cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * 4, cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_b1.data(), d_b1, h_b1.size() * 4, cudaMemcpyDeviceToHost);
+
         std::cout << "  W1[0:5]: ";
         for (int i = 0; i < 5 && i < (int)h_w1.size(); ++i) {
             std::cout << std::fixed << std::setprecision(4) << h_w1[i] << " ";
