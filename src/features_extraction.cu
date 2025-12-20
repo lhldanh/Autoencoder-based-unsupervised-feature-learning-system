@@ -1,4 +1,3 @@
-%%writefile src/feature_extraction.cu
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -318,7 +317,12 @@ int main() {
     auto h_b1 = load_weights("../weights/enc_b1.bin");
     auto h_w2 = load_weights("../weights/enc_w2.bin");
     auto h_b2 = load_weights("../weights/enc_b2.bin");
-    
+        // Print an example from h_w1 (first 10 weights)
+    std::cout << "\nExample weights from enc_w1.bin:\n";
+    for (size_t i = 0; i < std::min((size_t)10, h_w1.size()); ++i) {
+        std::cout << std::fixed << std::setprecision(5) << h_w1[i] << " ";
+    }
+    std::cout << "... (total " << h_w1.size() << " values)\n";
     std::cout << "  w1: " << h_w1.size() << " (" << 256 << "x" << 3*9 << ")\n";
     std::cout << "  b1: " << h_b1.size() << "\n";
     std::cout << "  w2: " << h_w2.size() << " (" << 128 << "x" << 256*9 << ")\n";
@@ -499,7 +503,13 @@ int main() {
     std::cout << "\nFeature extraction complete!\n";
     std::cout << "  Train: (" << X_train.size() << ", " << FEATURE_DIM << ")\n";
     std::cout << "  Test: (" << X_test.size() << ", " << FEATURE_DIM << ")\n\n";
-    
+    std::cout << "\nExample feature (first train sample):\n";
+    if (!X_train.empty()) {
+        for (size_t i = 0; i < std::min((size_t)20, X_train[0].size()); ++i) { // Print first 20 elements
+            std::cout << std::fixed << std::setprecision(5) << X_train[0][i] << " ";
+        }
+        std::cout << "... (total " << X_train[0].size() << " values)\n";
+    }
     // Save features
     std::cout << "Saving features...\n";
     create_directory_if_not_exists("../features");
