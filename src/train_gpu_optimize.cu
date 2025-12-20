@@ -9,7 +9,7 @@ int main() {
     const int B = 64, EPOCHS = 20;
     const float LR = 0.001f;
     
-    std::cout << "=== CUDA Autoencoder (Merged Bias) ===\n\n";
+    std::cout << "=== CUDA Autoencoder (Fused Backward Kernels) ===\n\n";
     
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
@@ -30,46 +30,46 @@ int main() {
     int s_l3 = B * 8 * 8 * 128,   s_u3 = B * 16 * 16 * 128;
     int s_l4 = B * 16 * 16 * 256, s_u4 = B * 32 * 32 * 256;
     
-    // Col buffer sizes (NOW WITH BIAS COLUMN +1)
-    int col1_size = B * 32 * 32 * (3 * 9 + 1);
-    int col2_size = B * 16 * 16 * (256 * 9 + 1);
-    int col3_size = B * 8 * 8 * (128 * 9 + 1);
-    int col4_size = B * 16 * 16 * (128 * 9 + 1);
-    int col5_size = B * 32 * 32 * (256 * 9 + 1);
+    // Col buffer sizes
+    int col1_size = B * 32 * 32 * (3 * 9);
+    int col2_size = B * 16 * 16 * (256 * 9);
+    int col3_size = B * 8 * 8 * (128 * 9);
+    int col4_size = B * 16 * 16 * (128 * 9);
+    int col5_size = B * 32 * 32 * (256 * 9);
     
-    // Weights (NOW INCLUDE BIAS AS EXTRA COLUMN: [out_ch, in_ch * K * K + 1])
-    std::vector<float> h_w1(256 * (3 * 9 + 1));      // 256 x 28
-    std::vector<float> h_w2(128 * (256 * 9 + 1));    // 128 x 2305
-    std::vector<float> h_w3(128 * (128 * 9 + 1));    // 128 x 1153
-    std::vector<float> h_w4(256 * (128 * 9 + 1));    // 256 x 1153
-    std::vector<float> h_w5(3 * (256 * 9 + 1));      // 3 x 2305
+    // Weights
+    std::vector<float> h_w1(256 * 3 * 9), h_b1(256, 0);
+    std::vector<float> h_w2(128 * 256 * 9), h_b2(128, 0);
+    std::vector<float> h_w3(128 * 128 * 9), h_b3(128, 0);
+    std::vector<float> h_w4(256 * 128 * 9), h_b4(256, 0);
+    std::vector<float> h_w5(3 * 256 * 9), h_b5(3, 0);
     
-    // Initialize weights (bias column will be initialized separately)
-    init_random(h_w1, 27, 256);
-    init_random(h_w2, 2304, 128);
-    init_random(h_w3, 1152, 128);
-    init_random(h_w4, 1152, 256);
+    init_random(h_w1, 27, 256); init_random(h_w2, 2304, 128);
+    init_random(h_w3, 1152, 128); init_random(h_w4, 1152, 256);
     init_random(h_w5, 2304, 3);
+    init_random(h_b1, 27, 256);
+    init_random(h_b2, 2304, 128);
+    init_random(h_b3, 1152, 128);
+    init_random(h_b4, 1152, 256);
+    init_random(h_b5, 2304, 3);
     
-    // Initialize bias columns (last column of each weight matrix)
-    for (int i = 0; i < 256; ++i) h_w1[i * (3 * 9 + 1) + (3 * 9)] = 0.0f;
-    for (int i = 0; i < 128; ++i) h_w2[i * (256 * 9 + 1) + (256 * 9)] = 0.0f;
-    for (int i = 0; i < 128; ++i) h_w3[i * (128 * 9 + 1) + (128 * 9)] = 0.0f;
-    for (int i = 0; i < 256; ++i) h_w4[i * (128 * 9 + 1) + (128 * 9)] = 0.0f;
-    for (int i = 0; i < 3; ++i) h_w5[i * (256 * 9 + 1) + (256 * 9)] = 0.0f;
+    // Device memory - weights
+    float *d_w1, *d_b1, *d_dw1, *d_db1;
+    float *d_w2, *d_b2, *d_dw2, *d_db2;
+    float *d_w3, *d_b3, *d_dw3, *d_db3;
+    float *d_w4, *d_b4, *d_dw4, *d_db4;
+    float *d_w5, *d_b5, *d_dw5, *d_db5;
     
-    // Device memory - weights and gradients
-    float *d_w1, *d_dw1;
-    float *d_w2, *d_dw2;
-    float *d_w3, *d_dw3;
-    float *d_w4, *d_dw4;
-    float *d_w5, *d_dw5;
-    
-    d_w1 = pool.alloc(h_w1.size() * 4); d_dw1 = pool.alloc(h_w1.size() * 4);
-    d_w2 = pool.alloc(h_w2.size() * 4); d_dw2 = pool.alloc(h_w2.size() * 4);
-    d_w3 = pool.alloc(h_w3.size() * 4); d_dw3 = pool.alloc(h_w3.size() * 4);
-    d_w4 = pool.alloc(h_w4.size() * 4); d_dw4 = pool.alloc(h_w4.size() * 4);
-    d_w5 = pool.alloc(h_w5.size() * 4); d_dw5 = pool.alloc(h_w5.size() * 4);
+    d_w1 = pool.alloc(h_w1.size() * 4); d_b1 = pool.alloc(256 * 4);
+    d_dw1 = pool.alloc(h_w1.size() * 4); d_db1 = pool.alloc(256 * 4);
+    d_w2 = pool.alloc(h_w2.size() * 4); d_b2 = pool.alloc(128 * 4);
+    d_dw2 = pool.alloc(h_w2.size() * 4); d_db2 = pool.alloc(128 * 4);
+    d_w3 = pool.alloc(h_w3.size() * 4); d_b3 = pool.alloc(128 * 4);
+    d_dw3 = pool.alloc(h_w3.size() * 4); d_db3 = pool.alloc(128 * 4);
+    d_w4 = pool.alloc(h_w4.size() * 4); d_b4 = pool.alloc(256 * 4);
+    d_dw4 = pool.alloc(h_w4.size() * 4); d_db4 = pool.alloc(256 * 4);
+    d_w5 = pool.alloc(h_w5.size() * 4); d_b5 = pool.alloc(3 * 4);
+    d_dw5 = pool.alloc(h_w5.size() * 4); d_db5 = pool.alloc(3 * 4);
     
     // Double buffering for input
     float *d_input[2];
@@ -84,7 +84,7 @@ int main() {
     d_l4 = pool.alloc(s_l4 * 4); d_u4 = pool.alloc(s_u4 * 4);
     d_out = pool.alloc(s_in * 4);
     
-    // Im2col buffers (with bias column)
+    // Im2col buffers
     float *d_col1, *d_col2, *d_col3, *d_col4, *d_col5;
     d_col1 = pool.alloc(col1_size * 4);
     d_col2 = pool.alloc(col2_size * 4);
@@ -113,12 +113,17 @@ int main() {
     float* h_pinned_input;
     cudaMallocHost(&h_pinned_input, s_in * 4);
     
-    // Copy weights to device
+    // Copy weights
     cudaMemcpy(d_w1, h_w1.data(), h_w1.size() * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b1, h_b1.data(), 256 * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_w2, h_w2.data(), h_w2.size() * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b2, h_b2.data(), 128 * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_w3, h_w3.data(), h_w3.size() * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b3, h_b3.data(), 128 * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_w4, h_w4.data(), h_w4.size() * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b4, h_b4.data(), 256 * 4, cudaMemcpyHostToDevice);
     cudaMemcpy(d_w5, h_w5.data(), h_w5.size() * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b5, h_b5.data(), 3 * 4, cudaMemcpyHostToDevice);
     
     int num_batches = dataset.get_num_train() / B;
     std::cout << "Training: " << EPOCHS << " epochs, " << num_batches << " batches\n\n";
@@ -154,71 +159,79 @@ int main() {
             
             if (batch == 0) cudaStreamSynchronize(stream_transfer);
             
-            // ========== FORWARD (With merged bias) ==========
+            // ========== FORWARD (Fused GEMM+Bias+ReLU) ==========
             // Layer 1: Conv + ReLU + MaxPool
-            im2col_with_bias(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute);
-            gemm_nt_relu(d_col1, d_w1, d_l1, B * 32 * 32, 3 * 9 + 1, 256, true, stream_compute);
+            im2col(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute);
+            gemm_nt_bias_relu(d_col1, d_w1, d_b1, d_l1, B * 32 * 32, 3 * 9, 256, true, stream_compute);
             maxpool_forward(d_l1, d_p1, d_idx1, B, 32, 32, 256, stream_compute);
             
             // Layer 2: Conv + ReLU + MaxPool
-            im2col_with_bias(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
-            gemm_nt_relu(d_col2, d_w2, d_l2, B * 16 * 16, 256 * 9 + 1, 128, true, stream_compute);
+            im2col(d_p1, d_col2, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
+            gemm_nt_bias_relu(d_col2, d_w2, d_b2, d_l2, B * 16 * 16, 256 * 9, 128, true, stream_compute);
             maxpool_forward(d_l2, d_p2, d_idx2, B, 16, 16, 128, stream_compute);
             
             // Layer 3: Conv + ReLU + Upsample
-            im2col_with_bias(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
-            gemm_nt_relu(d_col3, d_w3, d_l3, B * 8 * 8, 128 * 9 + 1, 128, true, stream_compute);
+            im2col(d_p2, d_col3, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
+            gemm_nt_bias_relu(d_col3, d_w3, d_b3, d_l3, B * 8 * 8, 128 * 9, 128, true, stream_compute);
             upsample_forward(d_l3, d_u3, B, 8, 8, 128, stream_compute);
             
             // Layer 4: Conv + ReLU + Upsample
-            im2col_with_bias(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
-            gemm_nt_relu(d_col4, d_w4, d_l4, B * 16 * 16, 128 * 9 + 1, 256, true, stream_compute);
+            im2col(d_u3, d_col4, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
+            gemm_nt_bias_relu(d_col4, d_w4, d_b4, d_l4, B * 16 * 16, 128 * 9, 256, true, stream_compute);
             upsample_forward(d_l4, d_u4, B, 16, 16, 256, stream_compute);
             
             // Layer 5: Conv (no ReLU)
-            im2col_with_bias(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
-            gemm_nt_relu(d_col5, d_w5, d_out, B * 32 * 32, 256 * 9 + 1, 3, false, stream_compute);
+            im2col(d_u4, d_col5, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
+            gemm_nt_bias_relu(d_col5, d_w5, d_b5, d_out, B * 32 * 32, 256 * 9, 3, false, stream_compute);
             
             // ========== FUSED LOSS + BACKWARD ==========
             mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
             // ========== BACKWARD WITH FUSED KERNELS ==========
-            // Note: We can reuse col buffers from forward pass to save memory
-            // since backward uses them in reverse order
             
             // Layer 5 backward (no ReLU - use standard kernels)
-            gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9 + 1, stream_compute);
+            gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9, stream_compute);
             col2im(d_dcol, d_du4, B, 32, 32, 256, 3, 1, 32, 32, stream_compute);
-            gemm_tn(d_dout, d_col5, d_dw5, 3, B * 32 * 32, 256 * 9 + 1, stream_compute);
+            gemm_tn(d_dout, d_col5, d_dw5, 3, B * 32 * 32, 256 * 9, stream_compute);
+            bias_backward(d_dout, d_db5, B * 32 * 32, 3, stream_compute);
             
             // Layer 4 backward (FUSED: upsample + relu backward)
             fused_upsample_relu_backward(d_du4, d_l4, d_dl4, B, 16, 16, 256, stream_compute);
-            gemm_nn(d_dl4, d_w4, d_dcol, B * 16 * 16, 256, 128 * 9 + 1, stream_compute);
+            gemm_nn(d_dl4, d_w4, d_dcol, B * 16 * 16, 256, 128 * 9, stream_compute);
             col2im(d_dcol, d_du3, B, 16, 16, 128, 3, 1, 16, 16, stream_compute);
-            gemm_tn(d_dl4, d_col4, d_dw4, 256, B * 16 * 16, 128 * 9 + 1, stream_compute);
+            gemm_tn(d_dl4, d_col4, d_dw4, 256, B * 16 * 16, 128 * 9, stream_compute);
+            bias_backward(d_dl4, d_db4, B * 16 * 16, 256, stream_compute);
             
             // Layer 3 backward (FUSED: upsample + relu backward)
             fused_upsample_relu_backward(d_du3, d_l3, d_dl3, B, 8, 8, 128, stream_compute);
-            gemm_nn(d_dl3, d_w3, d_dcol, B * 8 * 8, 128, 128 * 9 + 1, stream_compute);
+            gemm_nn(d_dl3, d_w3, d_dcol, B * 8 * 8, 128, 128 * 9, stream_compute);
             col2im(d_dcol, d_dp2, B, 8, 8, 128, 3, 1, 8, 8, stream_compute);
-            gemm_tn(d_dl3, d_col3, d_dw3, 128, B * 8 * 8, 128 * 9 + 1, stream_compute);
+            gemm_tn(d_dl3, d_col3, d_dw3, 128, B * 8 * 8, 128 * 9, stream_compute);
+            bias_backward(d_dl3, d_db3, B * 8 * 8, 128, stream_compute);
             
             // Layer 2 backward (FUSED: zero + maxpool + relu backward)
             fused_maxpool_relu_backward(d_dp2, d_idx2, d_l2, d_dl2, s_p2, s_l2, stream_compute);
-            gemm_nn(d_dl2, d_w2, d_dcol, B * 16 * 16, 128, 256 * 9 + 1, stream_compute);
+            gemm_nn(d_dl2, d_w2, d_dcol, B * 16 * 16, 128, 256 * 9, stream_compute);
             col2im(d_dcol, d_dp1, B, 16, 16, 256, 3, 1, 16, 16, stream_compute);
-            gemm_tn(d_dl2, d_col2, d_dw2, 128, B * 16 * 16, 256 * 9 + 1, stream_compute);
+            gemm_tn(d_dl2, d_col2, d_dw2, 128, B * 16 * 16, 256 * 9, stream_compute);
+            bias_backward(d_dl2, d_db2, B * 16 * 16, 128, stream_compute);
             
             // Layer 1 backward (FUSED: zero + maxpool + relu backward)
             fused_maxpool_relu_backward(d_dp1, d_idx1, d_l1, d_dl1, s_p1, s_l1, stream_compute);
-            gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9 + 1, stream_compute);
+            gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9, stream_compute);
+            bias_backward(d_dl1, d_db1, B * 32 * 32, 256, stream_compute);
             
             // ========== SGD UPDATE (Vectorized) ==========
             sgd_update_vectorized(d_w1, d_dw1, h_w1.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b1, d_db1, 256, LR, stream_compute);
             sgd_update_vectorized(d_w2, d_dw2, h_w2.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b2, d_db2, 128, LR, stream_compute);
             sgd_update_vectorized(d_w3, d_dw3, h_w3.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b3, d_db3, 128, LR, stream_compute);
             sgd_update_vectorized(d_w4, d_dw4, h_w4.size(), LR, stream_compute);
+            sgd_update_vectorized(d_b4, d_db4, 256, LR, stream_compute);
             sgd_update_vectorized(d_w5, d_dw5, h_w5.size(), LR, stream_compute);
+            sgd_update(d_b5, d_db5, 3, LR, stream_compute);
         }
         
         float h_loss;
@@ -229,27 +242,67 @@ int main() {
         double ep_time = std::chrono::duration<double>(ep_end - ep_start).count();
         
         std::cout << "Epoch " << (epoch + 1) << "/" << EPOCHS
-                  << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
-                  << " | Time: " << std::setprecision(2) << ep_time << "s"
-                  << " | " << std::setprecision(0) << (num_batches * B) / ep_time << " img/s\n";
+        << " | Loss: " << std::fixed << std::setprecision(6) << h_loss / (num_batches * s_in)
+        << " | Time: " << std::setprecision(2) << ep_time << "s"
+        << " | " << std::setprecision(0) << (num_batches * B) / ep_time << " img/s\n";
+        
+        // Print sample weights
+        cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * 4, cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_b1.data(), d_b1, h_b1.size() * 4, cudaMemcpyDeviceToHost);
+
+        std::cout << "  W1[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_w1.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_w1[i] << " ";
+        }
+        std::cout << "\n";
+        
+        std::cout << "  W5[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_w5.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_w5[i] << " ";
+        }
+        std::cout << "\n";
+        
+        std::cout << "  B1[0:5]: ";
+        for (int i = 0; i < 5 && i < (int)h_b1.size(); ++i) {
+            std::cout << std::fixed << std::setprecision(4) << h_b1[i] << " ";
+        }
+        std::cout << "\n";
+        
+        // Print weight statistics
+        float w1_min = h_w1[0], w1_max = h_w1[0], w1_sum = 0;
+        for (size_t i = 0; i < h_w1.size(); ++i) {
+            if (h_w1[i] < w1_min) w1_min = h_w1[i];
+            if (h_w1[i] > w1_max) w1_max = h_w1[i];
+            w1_sum += h_w1[i];
+        }
+        std::cout << "  W1 stats: min=" << std::setprecision(4) << w1_min 
+                  << " max=" << w1_max 
+                  << " mean=" << w1_sum / h_w1.size() << "\n\n";
     }
+     
     
     auto t_end = std::chrono::high_resolution_clock::now();
     std::cout << "\nTotal: " << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
     
     // Save weights
     cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b1.data(), d_b1, 256 * 4, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_w2.data(), d_w2, h_w2.size() * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b2.data(), d_b2, 128 * 4, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_w3.data(), d_w3, h_w3.size() * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b3.data(), d_b3, 128 * 4, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_w4.data(), d_w4, h_w4.size() * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b4.data(), d_b4, 256 * 4, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_b5.data(), d_b5, 3 * 4, cudaMemcpyDeviceToHost);
     
     system("mkdir -p ../weights");
-    save_weights("../weights/enc_w1.bin", h_w1);
-    save_weights("../weights/enc_w2.bin", h_w2);
-    save_weights("../weights/dec_w3.bin", h_w3);
-    save_weights("../weights/dec_w4.bin", h_w4);
-    save_weights("../weights/dec_w5.bin", h_w5);
+    save_weights("../weights/enc_w1.bin", h_w1); save_weights("../weights/enc_b1.bin", h_b1);
+    save_weights("../weights/enc_w2.bin", h_w2); save_weights("../weights/enc_b2.bin", h_b2);
+    save_weights("../weights/dec_w3.bin", h_w3); save_weights("../weights/dec_b3.bin", h_b3);
+    save_weights("../weights/dec_w4.bin", h_w4); save_weights("../weights/dec_b4.bin", h_b4);
+    save_weights("../weights/dec_w5.bin", h_w5); save_weights("../weights/dec_b5.bin", h_b5);
     
     cudaFreeHost(h_pinned_input);
     cudaStreamDestroy(stream_compute);
