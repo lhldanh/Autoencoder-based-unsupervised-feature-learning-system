@@ -7,7 +7,7 @@
 
 int main() {
     const int B = 64, EPOCHS = 1;
-    const int max_images = 500;
+    const int max_images = 50000;
     
     CIFAR10Dataset dataset("../data/cifar-10-batches-bin");
     dataset.load_data();
