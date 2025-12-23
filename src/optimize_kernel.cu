@@ -781,32 +781,5 @@ void bias_backward_relu(const float* d_out, const float* fwd, float* d_bias,
 }
 
 
-// ============== WEIGHT INITIALIZATION ==============
-
-void init_random(std::vector<float>& v, int fan_in, int fan_out) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    float std_dev = std::sqrt(2.0f / (fan_in + fan_out));
-    std::normal_distribution<float> dist(0.0f, std_dev);
-    for (auto& x : v) x = dist(gen);
-}
-
-// ============== I/O OPERATIONS ==============
-
-void save_weights(const std::string& f, const std::vector<float>& d) {
-    std::ofstream file(f, std::ios::binary);
-    uint32_t sz = d.size();
-    file.write((char*)&sz, 4);
-    file.write((char*)d.data(), d.size() * 4);
-}
-
-bool load_weights(const std::string& f, std::vector<float>& d) {
-    std::ifstream file(f, std::ios::binary);
-    if (!file.is_open()) return false;
-    
-    uint32_t sz;
-    file.read((char*)&sz, 4);
-    d.resize(sz);
-    file.read((char*)d.data(), sz * 4);
-    return true;
-}
+// NOTE: init_random, save_weights, load_weights are defined in kernel.cu
+// Do not duplicate them here to avoid linker errors
