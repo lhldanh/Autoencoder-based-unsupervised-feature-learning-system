@@ -244,7 +244,7 @@ int main() {
     }
     
     auto t_end = std::chrono::high_resolution_clock::now();
-    std::cout << "⏱️  train_gpu_optimize_all: " << std::chrono::duration<double>(t_end - t_start).count() << " seconds\n";
+    std::cout << "train_gpu_optimize_all: " << std::chrono::duration<double>(t_end - t_start).count() << " seconds\n";
     
     cudaFreeHost(h_pinned_input);
     cudaStreamDestroy(stream_compute);

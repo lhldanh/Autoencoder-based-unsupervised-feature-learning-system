@@ -232,7 +232,7 @@ int main() {
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed_total = end_total - start_total;
-  std::cout << "⏱️  train_gpu_baseline: " << elapsed_total.count() << " seconds\n";
+  std::cout << "train_gpu_baseline: " << elapsed_total.count() << " seconds\n";
 
   cudaFree(d_w1); cudaFree(d_b1); cudaFree(d_dw1); cudaFree(d_db1);
   cudaFree(d_w2); cudaFree(d_b2); cudaFree(d_dw2); cudaFree(d_db2);
