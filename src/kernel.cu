@@ -4,7 +4,7 @@
 #include <random>
 #include <cmath>
 
-// ============== CUDA ERROR CHECKING ==============
+// CUDA ERROR CHECKING
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
     if (result) {
         fprintf(stderr, "CUDA error at %s:%d code=%d (%s) \"%s\" \n", file, line, 
@@ -20,14 +20,14 @@ void checkCudaErrors(cudaError_t code) {
     }
 }
 
-// ============== KERNEL LAUNCH CONFIGURATION ==============
+// KERNEL LAUNCH CONFIGURATION
 dim3 get_1d_dims(size_t total_size) {
     const int THREADS_PER_BLOCK = 256;
     size_t blocks = (total_size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     return dim3((unsigned int)blocks, 1, 1);
 }
 
-// ============== DEVICE HELPER FUNCTIONS ==============
+// DEVICE HELPER FUNCTIONS
 __device__ inline int get_idx_dev(int b, int h, int w, int c, int H, int W, int C) {
     return b * (H * W * C) + h * (W * C) + w * C + c;
 }
@@ -37,7 +37,7 @@ __global__ void fill_zeros(float* data, size_t size) {
     if (idx < size) data[idx] = 0.0f;
 }
 
-// ============== CONVOLUTION KERNELS ==============
+// CONVOLUTION KERNELS
 __global__ void conv2d_kernel(float* input, float* weight, float* bias, float* output, ConvParam_G p) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total_output_size = p.B * p.H_out * p.W_out * p.C_out;
@@ -158,7 +158,7 @@ __global__ void conv2d_backward_bias_kernel(float* d_output, float* d_bias, Conv
     }
 }
 
-// ============== RELU KERNELS ==============
+// RELU KERNELS
 __global__ void relu_kernel(float* data, size_t size) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -173,7 +173,7 @@ __global__ void relu_backward_kernel(float* d_output, float* input, float* d_inp
     }
 }
 
-// ============== MAX POOLING KERNELS ==============
+// MAX POOLING KERNELS
 __global__ void maxpool_kernel(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int out_h = in_h / 2;
@@ -246,7 +246,7 @@ __global__ void maxpool_backward_kernel(float* d_output, float* input, float* d_
     }
 }
 
-// ============== UPSAMPLE KERNELS ==============
+// UPSAMPLE KERNELS
 __global__ void upsample_kernel(float* input, float* output, int batch, int in_h, int in_w, int in_c) {
     int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int out_h = in_h * 2;
@@ -299,7 +299,7 @@ __global__ void upsample_backward_kernel(float* d_output, float* d_input,
     }
 }
 
-// ============== MSE LOSS KERNELS ==============
+// MSE LOSS KERNELS
 __global__ void mse_diff_kernel(float* pred, float* target, float* diff_sq, size_t size) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -336,7 +336,7 @@ float mse_loss_kernel(float* pred, float* target, size_t size) {
     return (float)(sum / size);
 }
 
-// ============== OPTIMIZER KERNELS ==============
+// OPTIMIZER KERNELS
 __global__ void update_weights_kernel(float* weights, float* d_weights, size_t size, float lr) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -344,7 +344,7 @@ __global__ void update_weights_kernel(float* weights, float* d_weights, size_t s
     }
 }
 
-// ============== UTILITY FUNCTIONS ==============
+// UTILITY FUNCTIONS
 void init_random(std::vector<float>& vec, int fan_in, int fan_out) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -376,7 +376,7 @@ bool load_weights(const std::string& filename, std::vector<float>& data) {
     return true;
 }
 
-// ============== MEMORY ALLOCATION HELPERS ==============
+// MEMORY ALLOCATION HELPERS
 void allocate_and_copy(float*& device_ptr, const std::vector<float>& host_data) {
     size_t size = host_data.size() * sizeof(float);
     checkCudaErrors(cudaMalloc((void**)&device_ptr, size));

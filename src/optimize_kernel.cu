@@ -4,7 +4,7 @@
 #include <random>
 #include <cmath>
 
-// ============== MEMORY POOL IMPLEMENTATION ==============
+// MEMORY POOL IMPLEMENTATION
 float* MemoryPool::alloc(size_t bytes) {
     float* p;
     cudaMalloc(&p, bytes);
@@ -19,7 +19,7 @@ MemoryPool::~MemoryPool() {
     for (auto& b : buffers) cudaFree(b.first);
 }
 
-// ============== FUSED GEMM + BIAS + RELU KERNELS ==============
+// FUSED GEMM + BIAS + RELU KERNELS
 
 __global__ void gemm_nt_bias_relu_kernel(
     const float* __restrict__ A,
@@ -151,7 +151,7 @@ void gemm_nt_bias_relu(const float* A, const float* B, const float* bias,
     }
 }
 
-// ============== STANDARD GEMM KERNELS ==============
+// STANDARD GEMM KERNELS
 
 __global__ void gemm_nn_kernel(
     const float* __restrict__ A,
@@ -239,7 +239,7 @@ void gemm_tn(const float* A, const float* B, float* C, int M, int K, int N, cuda
     gemm_tn_kernel<<<grid, block, 0, stream>>>(A, B, C, M, K, N);
 }
 
-// ============== IM2COL / COL2IM KERNELS ==============
+// IM2COL / COL2IM KERNELS
 
 __global__ void im2col_kernel(
     const float* __restrict__ input,
@@ -327,7 +327,7 @@ void col2im(const float* col, float* input_grad,
     col2im_kernel<<<GRID(total), BLOCK_SIZE, 0, stream>>>(col, input_grad, B, H, W, C, K, P, H_out, W_out);
 }
 
-// ============== POOLING KERNELS ==============
+// POOLING KERNELS
 
 __global__ void maxpool_kernel(
     const float* __restrict__ input,
@@ -398,7 +398,7 @@ void upsample_forward(const float* input, float* output,
     upsample_kernel<<<GRID(total), BLOCK_SIZE, 0, stream>>>(input, output, B, H_in, W_in, C);
 }
 
-// ============== FUSED BACKWARD KERNELS ==============
+// FUSED BACKWARD KERNELS
 
 __global__ void mse_loss_backward_fused_kernel(
     const float* __restrict__ pred,
@@ -470,7 +470,7 @@ void fused_upsample_relu_backward(const float* d_out, const float* fwd, float* d
         d_out, fwd, d_in, B, H_in, W_in, C);
 }
 
-// ============== VECTORIZED UTILITY KERNELS ==============
+// VECTORIZED UTILITY KERNELS
 
 __global__ void fill_zeros_vectorized_kernel(float* data, int size) {
     int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
@@ -517,7 +517,7 @@ void sgd_update(float* weights, const float* gradients,
     sgd_kernel<<<GRID(size), BLOCK_SIZE, 0, stream>>>(weights, gradients, size, learning_rate);
 }
 
-// ============== FUSED MAXPOOL + RELU BACKWARD ==============
+// FUSED MAXPOOL + RELU BACKWARD
 
 __global__ void fused_maxpool_relu_backward_kernel(
     const float* __restrict__ d_out,
@@ -544,7 +544,7 @@ void fused_maxpool_relu_backward(const float* d_out, const int* indices, const f
         d_out, indices, fwd, d_in, pool_size);
 }
 
-// ============== FUSED GEMM + RELU BACKWARD KERNELS ==============
+// FUSED GEMM + RELU BACKWARD KERNELS
 
 __global__ void gemm_nn_relu_backward_kernel(
     const float* __restrict__ d_out,
@@ -648,7 +648,7 @@ void gemm_tn_relu_backward(const float* d_out, const float* fwd, const float* co
     gemm_tn_relu_backward_kernel<<<grid, block, 0, stream>>>(d_out, fwd, col, dW, M, K, N);
 }
 
-// ============== NON-FUSED BACKWARD KERNELS ==============
+// NON-FUSED BACKWARD KERNELS
 
 __global__ void relu_backward_kernel(const float* d_out, const float* fwd, float* d_in, int size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -779,7 +779,3 @@ void bias_backward_relu(const float* d_out, const float* fwd, float* d_bias,
                         int B_HW, int C, cudaStream_t stream) {
     bias_backward_relu_kernel<<<C, BLOCK_SIZE, 0, stream>>>(d_out, fwd, d_bias, B_HW, C);
 }
-
-
-// NOTE: init_random, save_weights, load_weights are defined in kernel.cu
-// Do not duplicate them here to avoid linker errors

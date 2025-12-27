@@ -10,7 +10,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <stdio.h>
-#include <stdlib.h> // For malloc/free
+#include <stdlib.h> 
 
 int main() {
   // 1. CONFIG & DATA
@@ -24,9 +24,8 @@ int main() {
   dataset.load_data();
   if (dataset.get_num_train() == 0) return 1;
 
-// ...existing code...
 
-  // --- HOST WEIGHTS AND BIASES ---
+  // HOST WEIGHTS AND BIASES
     // Encoder: 32x32x3 -> Conv1 -> 32x32x256 -> MaxPool -> 16x16x256
     // 16x16x256 -> Conv2 -> 16x16x128 -> MaxPool -> 8x8x128 (Latent)
   std::vector<float> h_w1(256*3*3*3);   init_random(h_w1, 3*3*3, 256*3*3);
@@ -43,7 +42,7 @@ int main() {
   std::vector<float> h_w5(3*256*3*3);   init_random(h_w5, 256*3*3, 3*3*3);
   std::vector<float> h_b5(3, 0.0f);
 
-  // --- DEVICE POINTERS & SIZES ---
+  // DEVICE POINTERS & SIZES
   float *d_w1, *d_b1, *d_dw1, *d_db1;
   float *d_w2, *d_b2, *d_dw2, *d_db2;
   float *d_w3, *d_b3, *d_dw3, *d_db3;
@@ -86,9 +85,9 @@ int main() {
   allocate_device_buffer(d_l2_out, size_l2_out);
   allocate_device_buffer(d_latent, size_latent);
   allocate_device_buffer(d_l3_out, size_latent); 
-  allocate_device_buffer(d_l3_up, size_l3_up); // Fixed size
-  allocate_device_buffer(d_l4_out, size_l4_out); // Fixed size
-  allocate_device_buffer(d_l4_up, size_l4_up); // Fixed size
+  allocate_device_buffer(d_l3_up, size_l3_up); 
+  allocate_device_buffer(d_l4_out, size_l4_out); 
+  allocate_device_buffer(d_l4_up, size_l4_up); 
   allocate_device_buffer(d_final_out, size_input);
 
   allocate_device_buffer(d_d_input, size_input);
@@ -97,14 +96,14 @@ int main() {
   allocate_device_buffer(d_d_l2_out, size_l2_out);
   allocate_device_buffer(d_d_latent, size_latent);
   allocate_device_buffer(d_d_l3_out, size_latent);
-  allocate_device_buffer(d_d_l3_up, size_l3_up); // Fixed size
-  allocate_device_buffer(d_d_l4_out, size_l4_out); // Fixed size
-  allocate_device_buffer(d_d_l4_up, size_l4_up); // Fixed size
+  allocate_device_buffer(d_d_l3_up, size_l3_up); 
+  allocate_device_buffer(d_d_l4_out, size_l4_out); 
+  allocate_device_buffer(d_d_l4_up, size_l4_up); 
   allocate_device_buffer(d_d_final_out, size_input);
 
 
   // 3. TRAINING LOOP
-  std::cout << "--- START TRAINING (CUDA) ---\n";
+  std::cout <<  "START TRAINING (CUDA)\n";
   std::cout << "Batch Size: " << BATCH << ", Epochs: " << EPOCHS << ", Learning Rate: " << LR << "\n" << "Max Images: " << MAX_IMAGES << "\n";
   // ConvParam_G: B, H_in, W_in, C_in, H_out, W_out, C_out, K, S, P
     // Encoder
@@ -286,17 +285,15 @@ int main() {
     
     std::cout << "\nEpoch " << epoch + 1 << " Done. Avg Loss: " << total_loss / num_batches 
           << " | Time: " << elapsed_epoch.count() << "s\n";
-  } // End of epoch loop
+  } 
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed_total = end_total - start_total;
-  std::cout << "\n--- Training Complete ---\n";
+  std::cout << "Training Complete\n";
   std::cout << "Total Training Time: " << elapsed_total.count() << " seconds\n";
   
 
   // 4. COPY FINAL WEIGHTS BACK TO HOST & SAVE
-  // std::cout << "\n--- Copying Final Weights to Host and Saving ---\n";
-
   // Copy Weights back D -> H
   checkCudaErrors(cudaMemcpy(h_w1.data(), d_w1, h_w1.size() * sizeof(float), cudaMemcpyDeviceToHost));
   checkCudaErrors(cudaMemcpy(h_b1.data(), d_b1, h_b1.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -309,15 +306,8 @@ int main() {
   checkCudaErrors(cudaMemcpy(h_w5.data(), d_w5, h_w5.size() * sizeof(float), cudaMemcpyDeviceToHost));
   checkCudaErrors(cudaMemcpy(h_b5.data(), d_b5, h_b5.size() * sizeof(float), cudaMemcpyDeviceToHost));
 
-  // Save Weights (using the host save_weights utility function)
-  // save_weights("../weights/enc_w1.bin", h_w1); save_weights("../weights/enc_b1.bin", h_b1);
-  // save_weights("../weights/enc_w2.bin", h_w2); save_weights("../weights/enc_b2.bin", h_b2);
-  // save_weights("../weights/dec_w3.bin", h_w3); save_weights("../weights/dec_b3.bin", h_b3);
-  // save_weights("../weights/dec_w4.bin", h_w4); save_weights("../weights/dec_b4.bin", h_b4);
-  // save_weights("../weights/dec_w5.bin", h_w5); save_weights("../weights/dec_b5.bin", h_b5);
-
   // 5. CLEANUP DEVICE MEMORY
-  std::cout << "\n--- Cleaning up device memory ---\n";
+  std::cout << "Cleaning up device memory\n";
   
   // Free Weights and Gradients
   cudaFree(d_w1); cudaFree(d_b1); cudaFree(d_dw1); cudaFree(d_db1);
@@ -337,4 +327,4 @@ int main() {
   std::cout << "Cleanup complete. Exiting program.\n";
 
   return 0;
-} // End of main function
+}

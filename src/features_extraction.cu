@@ -28,7 +28,7 @@
     } \
 } while(0)
 
-// ============== MEMORY POOL ==============
+// MEMORY POOL
 class MemoryPool {
     std::vector<std::pair<float*, size_t>> buffers;
     size_t total = 0;
@@ -43,7 +43,7 @@ public:
     ~MemoryPool() { for (auto& b : buffers) cudaFree(b.first); }
 };
 
-// ============== FUSED GEMM + BIAS + RELU KERNELS ==============
+// FUSED GEMM + BIAS + RELU KERNELS
 
 // C[M,N] = ReLU(A[M,K] * B^T[N,K] + bias[N])
 __global__ void gemm_nt_bias_relu_kernel(
@@ -180,7 +180,7 @@ void gemm_nt_bias_relu(const float* A, const float* B, const float* bias,
     }
 }
 
-// ============== IM2COL KERNEL ==============
+// IM2COL KERNEL
 __global__ void im2col_kernel(
     const float* __restrict__ input,
     float* __restrict__ col,
@@ -216,7 +216,7 @@ __global__ void im2col_kernel(
     col[col_row * col_width + col_col] = val;
 }
 
-// ============== MAXPOOL KERNEL ==============
+// MAXPOOL KERNEL
 __global__ void maxpool_kernel(
     const float* __restrict__ input,
     float* __restrict__ output,
@@ -249,7 +249,7 @@ __global__ void maxpool_kernel(
     output[idx] = max_val;
 }
 
-// ============== UTILITY FUNCTIONS ==============
+// UTILITY FUNCTIONS
 
 std::vector<float> load_weights(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
@@ -301,8 +301,6 @@ void save_features(const std::string& filename,
     std::cout << "Saved " << num_samples << " samples to " << filename << std::endl;
 }
 
-// ============== MAIN ==============
-
 int main() {
     std::cout << "=== Feature Extraction (Optimized GPU) ===\n\n";
     
@@ -317,16 +315,6 @@ int main() {
     auto h_b1 = load_weights("../weights/enc_b1.bin");
     auto h_w2 = load_weights("../weights/enc_w2.bin");
     auto h_b2 = load_weights("../weights/enc_b2.bin");
-        // Print an example from h_w1 (first 10 weights)
-    std::cout << "\nExample weights from enc_w1.bin:\n";
-    for (size_t i = 0; i < std::min((size_t)10, h_w1.size()); ++i) {
-        std::cout << std::fixed << std::setprecision(5) << h_w1[i] << " ";
-    }
-    std::cout << "... (total " << h_w1.size() << " values)\n";
-    std::cout << "  w1: " << h_w1.size() << " (" << 256 << "x" << 3*9 << ")\n";
-    std::cout << "  b1: " << h_b1.size() << "\n";
-    std::cout << "  w2: " << h_w2.size() << " (" << 128 << "x" << 256*9 << ")\n";
-    std::cout << "  b2: " << h_b2.size() << "\n\n";
     
     // Load dataset
     std::cout << "Loading CIFAR-10 dataset...\n";
@@ -395,7 +383,7 @@ int main() {
     float* test_images = dataset.get_test_images_ptr();
     unsigned char* test_labels = dataset.get_test_labels_ptr();
     
-    // ========== EXTRACT TRAIN FEATURES ==========
+    // EXTRACT TRAIN FEATURES
     std::cout << "Extracting train features...\n";
     int num_train_batches = (NUM_TRAIN + B - 1) / B;
     
@@ -449,7 +437,7 @@ int main() {
         }
     }
     
-    // ========== EXTRACT TEST FEATURES ==========
+    // EXTRACT TEST FEATURES
     std::cout << "\nExtracting test features...\n";
     int num_test_batches = (NUM_TEST + B - 1) / B;
     

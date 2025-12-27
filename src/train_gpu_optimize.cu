@@ -159,7 +159,7 @@ int main() {
             
             if (batch == 0) cudaStreamSynchronize(stream_transfer);
             
-            // ========== FORWARD (Fused GEMM+Bias+ReLU) ==========
+            // FORWARD (Fused GEMM+Bias+ReLU)
             // Layer 1: Conv + ReLU + MaxPool
             im2col(curr_input, d_col1, B, 32, 32, 3, 3, 1, 32, 32, stream_compute);
             gemm_nt_bias_relu(d_col1, d_w1, d_b1, d_l1, B * 32 * 32, 3 * 9, 256, true, stream_compute);
@@ -197,10 +197,10 @@ int main() {
 
             fill_zeros_vectorized(d_dw5, h_w5.size(), stream_compute);
             fill_zeros_vectorized(d_db5, 3, stream_compute);
-            // ========== FUSED LOSS + BACKWARD ==========
+            // FUSED LOSS + BACKWARD
             mse_loss_backward_fused(d_out, curr_input, d_dout, d_loss, s_in, stream_compute);
             
-            // ========== BACKWARD WITH FUSED KERNELS ==========
+            // BACKWARD WITH FUSED KERNELS
             
             // Layer 5 backward (no ReLU - use standard kernels)
             gemm_nn(d_dout, d_w5, d_dcol, B * 32 * 32, 3, 256 * 9, stream_compute);
@@ -234,7 +234,7 @@ int main() {
             gemm_tn(d_dl1, d_col1, d_dw1, 256, B * 32 * 32, 3 * 9, stream_compute);
             bias_backward(d_dl1, d_db1, B * 32 * 32, 256, stream_compute);
             
-            // ========== SGD UPDATE (Vectorized) ==========
+            // SGD UPDATE (Vectorized)
             sgd_update_vectorized(d_w1, d_dw1, h_w1.size(), LR, stream_compute);
             sgd_update_vectorized(d_b1, d_db1, 256, LR, stream_compute);
             sgd_update_vectorized(d_w2, d_dw2, h_w2.size(), LR, stream_compute);

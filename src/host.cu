@@ -1,14 +1,13 @@
 #include "host.h"
 #include <algorithm> // Cho std::fill
 
-// Helper nội bộ (không cần export ra header)
+// Helper internal function to compute flattened index
 inline int get_idx(int b, int h, int w, int c, int H, int W, int C) {
     return b * (H * W * C) + h * (W * C) + w * C + c;
 }
 
 // 1. Convolution
 void conv2d(float* input, float* weight, float* bias, float* output, ConvParam p) {
-    // ... (Giữ nguyên logic vòng lặp for cũ) ...
     for (int b = 0; b < p.batch; ++b) {
         for (int oh = 0; oh < p.out_h; ++oh) {
             for (int ow = 0; ow < p.out_w; ++ow) {
