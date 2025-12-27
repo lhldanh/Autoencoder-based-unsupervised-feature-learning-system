@@ -14,7 +14,7 @@
 
 int main() {
   int BATCH = 64;
-  int EPOCHS = 20;
+  int EPOCHS = 1;
   int MAX_IMAGES = 50000;
   float LR = 0.001f;
 

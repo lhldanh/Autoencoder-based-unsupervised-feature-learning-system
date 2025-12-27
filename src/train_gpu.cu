@@ -15,7 +15,7 @@
 int main() {
   // 1. CONFIG & DATA
   int BATCH = 32;
-  int EPOCHS = 5;
+  int EPOCHS = 1;
   int MAX_IMAGES = 96; // Limit number of images for quick testing
   float LR = 0.001f;
 

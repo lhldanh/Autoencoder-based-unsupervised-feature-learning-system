@@ -12,7 +12,7 @@
 #include "optimize_kernel.h"
 
 int main() {
-    const int B = 64, EPOCHS = 20;
+    const int B = 64, EPOCHS = 1;
     const int max_images = 50000;
     const float LR = 0.001f;
     
